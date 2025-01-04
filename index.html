@@ -3,10 +3,14 @@
 	<head>
 		<title>da</title>
 <style>
+* {
+	touch-action: none;
+}
+
 canvas {
 	width: 100%;
 	height: 90vh;
-};
+}
 </style>
 	</head>
 	<body>
@@ -90,7 +94,7 @@ void main(){
 
 let set_qtree = (qtree, node) => {
 	let buffer = qtree.get_buffer();
-	let tex_w = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+	let tex_w = Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE)/4, 1<<12);
 	let num = buffer.length / 4;
 	let [w, h] = num < tex_w ? [num, 1] : [tex_w, num / tex_w];
 
@@ -119,6 +123,7 @@ let zoom = 1;
 let path = [0n, 0n];
 let c_depth = 1n;
 let c_tree;
+let redraw = false;
 
 let get_location = () => {
 	return `[${pos}], ${zoom}, [${path[0]}n, ${path[1]}n], ${c_depth}n`;
@@ -134,7 +139,7 @@ let get_tlnode = () => {
 		add(path, [1n, 1n]),
 	];
 
-	if(path_arr.flat().some(v => v & mask)){
+	while(path_arr.flat().some(v => v & mask)){
 		let nodes = [white, white, white, white];
 		let ind = BigInt((path[0] < 0n) + 2*(path[1] < 0n));
 
@@ -147,6 +152,7 @@ let get_tlnode = () => {
 
 		path = add(path, os);
 		c_depth++;
+		mask <<= 1n;
 	}
 
 	return qtree.add_node(0xffffffff, ...path_arr.map(v => get_node(c_tree, v, c_depth)));
@@ -189,6 +195,8 @@ let update_view = (n_pos, n_zoom, n_path, n_depth) => {
 
 	if(update_tree)
 		set_qtree(qtree, get_tlnode());
+
+	redraw = true;
 }
 
 /* event listeners */
@@ -203,8 +211,21 @@ mouse_wheel(screen, ([x, y], change) => {
 		c_depth
 	);
 });
+touch_pinch(screen, ([x, y], change) => {
+	let dp = to_cspace([x, y]);
+	let n_zoom = zoom + 0.05*zoom*change;
+
+	update_view(
+		add(smul(zoom/n_zoom, sub(pos, dp)), dp),
+		n_zoom,
+		path, 
+		c_depth
+	);
+});
+
 
 mouse_pan(screen, () => pos, (n_pos) => update_view(n_pos, zoom, path, c_depth));
+touch_pan(screen, () => pos, (n_pos) => update_view(n_pos, zoom, path, c_depth));
 
 screen.addEventListener("contextmenu", (e) => e.preventDefault());
 
@@ -216,6 +237,8 @@ let update_screen = () => {
 	unit = 2*Math.max(...n_dim);
 	rend.set_uniform("center", "vec2", smul(0.5, n_dim));
 	rend.set_uniform("depth", "int", Math.log2(unit) + 4 | 0);
+
+	redraw = true;
 }
 
 addEventListener("resize", update_screen);
@@ -225,15 +248,19 @@ addEventListener("resize", update_screen);
 
 
 let loop = () => {
-	rend.set_uniform("transform", "mat4", [
-		1, 0, 0, 0,
-		0, 1, 0, 0,
-		0, 0, 1, 0,
-		-pos[0], -pos[1], 0, 1
-	]);
 
-	rend.set_uniform("unit", "float", unit/zoom);
-	rend.draw();
+	if(redraw){
+		redraw = false;
+		rend.set_uniform("transform", "mat4", [
+			1, 0, 0, 0,
+			0, 1, 0, 0,
+			0, 0, 1, 0,
+			-pos[0], -pos[1], 0, 1
+		]);
+
+		rend.set_uniform("unit", "float", unit/zoom);
+		rend.draw();
+	}
 
 	requestAnimationFrame(loop);
 }
