@@ -19,22 +19,9 @@ canvas {
 let screen = document.getElementById("screen");
 let gl = screen.getContext("webgl");
 
-let update_screen = () => {
-	screen.width = screen.clientWidth;
-	screen.height = screen.clientHeight;
-	gl.viewport(0, 0, screen.width, screen.height);
-}
-
-addEventListener("resize", update_screen);
-update_screen();
-
-
 let rend = FragmentRenderer(gl,
-//gl_FragCoord
 `
 precision highp float;
-
-uniform vec2 res;
 
 uniform vec2 tres;
 uniform sampler2D tex;
@@ -48,97 +35,64 @@ uniform float unit;
 uniform mat4 transform;
 
 vec2 moddiv(int a, int b){
-int div = a / b;
-int mod = a - div * b;
+	int div = a / b;
+	int mod = a - div * b;
 
-return vec2(mod, div);
+	return vec2(mod, div);
 }
 
 int vec4toint(vec4 val){
-return int(val.r*256.0 + 256.0*256.0*val.g + 256.0*256.0*256.0*val.b + 256.0*256.0*256.0*256.0*val.a);
+	return int(256.0*val.r) + int(256.0*256.0*val.g) + int(256.0*256.0*256.0*val.b) + int(256.0*256.0*256.0*256.0*val.a);
 }
 
 vec4 col_at(int ind){
-vec2 tc = moddiv(ind, int(tres.x)) / tres;
-tc.y = 1.0 - tc.y;
-return texture2D(tex, tc);
+	vec2 tc = moddiv(ind, int(tres.x)) / tres;
+	tc.y = 1.0 - tc.y;
+	return texture2D(tex, tc);
 }
 
 int num_at(int ind){
-vec2 tc = moddiv(ind, int(tres.x)) / tres;
-tc.y = 1.0 - tc.y;
-return vec4toint(texture2D(tex, tc));
+	vec2 tc = moddiv(ind, int(tres.x)) / tres;
+	tc.y = 1.0 - tc.y;
+	return vec4toint(texture2D(tex, tc));
 }
 
 
 
 void main(){
-vec2 pos = (transform * vec4(gl_FragCoord.xy, 0.0, 1.0)).xy;
-vec2 orig = center;
+	vec2 pos = (transform * vec4(gl_FragCoord.xy, 0.0, 1.0)).xy;
+	vec2 orig = center;
 
-int ind = node;
-float width = unit;
+	int ind = node;
+	float width = unit;
 
-if(any(greaterThan(abs(pos - orig), vec2(width*0.5))))
-	discard;
+	if(any(greaterThan(abs(pos - orig), vec2(width*0.5))))
+		discard;
 
-for(int i = 0; i < 16; i++){
-	if(i >= depth)
-		break;
+	for(int i = 0; i < 16; i++){
+		if(i >= depth)
+			break;
 
-	vec2 quad = vec2(pos.x > orig.x, pos.y < orig.y);
-	ind = num_at(ind * 5 + 1 + int(quad.x + 2.0*quad.y));
-	width = width / 2.0;
-	orig = vec2(quad.x-0.5, 0.5-quad.y)*width + orig;
-}
+		vec2 quad = vec2(pos.x > orig.x, pos.y < orig.y);
+		ind = num_at(ind * 5 + 1 + int(quad.x + 2.0*quad.y));
+		width = width / 2.0;
+		orig = vec2(quad.x-0.5, 0.5-quad.y)*width + orig;
+	}
 
-gl_FragColor = col_at(ind*5);
-gl_FragColor.a = 1.0;
+	gl_FragColor = col_at(ind*5);
+	gl_FragColor.a = 1.0;
 }
 `
 );
 
 
 
-let qtree = LinearQtree();
-
-let black = qtree.add_node(0, {ind: 0}, {ind: 0}, {ind: 0}, {ind: 0});
-let white = qtree.add_node(0xffffffff, {ind: 1}, {ind: 1}, {ind: 1}, {ind: 1});
-let red = qtree.add_node(0xff0000ff, {ind: 2}, {ind: 2}, {ind: 2}, {ind: 2});
-
-let t1 = qtree.add_node(0xcccccccc, black, white, white, black);
-let t2 = qtree.add_node(0xcccccccc, black, white, black, white);
-
-let t3 = qtree.add_node(0xcccccccc, t1, t1, t2, t1);
-
-let t4 = qtree.add_node(0xcccccccc, t3, t2, t1, t3);
-
-let tree = qtree.add_node(0xcccccccc, t3, t4, t3, t1);
-
-{
-  let a = qtree.add_node(0xffffffff, black, 0, black, 0);
-  let b = qtree.add_node(0xffffffff, black, 0, 0, white);
-  let t45 = qtree.add_node(0xffffffff, red, a, b, white);
-
-  a.set_node(1, t45);
-  a.set_node(3, t45);
-  a.set_tag(0xffffffff);
-
-  b.set_node(1, t45);
-  b.set_node(2, a);
-  b.set_tag(0xffffffff);
-
-  tree = t45
-}
-
-rend.set_uniform("res", "vec2", [screen.width, screen.height]);
-rend.set_uniform("center", "vec2", [screen.width/2, screen.height/2]);
-rend.set_uniform("depth", "int", 16);
-
 
 let set_qtree = (qtree, node) => {
 	let buffer = qtree.get_buffer();
-	let w = buffer.length / 4, h = 1; //TODO use h
+	let tex_w = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+	let num = buffer.length / 4;
+	let [w, h] = num < tex_w ? [num, 1] : [tex_w, num / tex_w];
 
 	rend.set_texture("tex", w, h, buffer);
 	rend.set_uniform("tres", "vec2", [w, h]);
@@ -149,150 +103,125 @@ let add = (a, b) => a.map((v, i) => v + b[i]);
 let smul = (a, b) => b.map(v => v * a);
 let sub = (a, b) => add(a, smul(-1, b));
 let dot = (a, b) => a.map((v, i) => v * b[i]).reduce((a, b) => a + b);
-let norm = (a) => smul(1/dot(a, a)**0.5, a);
-
-set_qtree(qtree, tree);
-
-
-
-let pos = [0, 0];
-
-//TODO some sort of linear interpolation
+let length = (a) => dot(a, a)**0.5;
+let norm = (a) => smul(1/length(a), a);
 let to_cspace = ([x, y]) => [x - screen.width/2, screen.height/2 - y];
 
+
+
+
+
+
+/*TODO remove globals*/
+let unit;
+let pos = [0, 0];
 let zoom = 1;
-let unit = 2*Math.max(screen.width, screen.height);
-let t_unit = unit;
-
-let c_tree = tree;
-let c_depth = 1n;
 let path = [0n, 0n];
+let c_depth = 1n;
+let c_tree;
 
-let update_view = () => {
-
+let get_location = () => {
+	return `[${pos}], ${zoom}, [${path[0]}n, ${path[1]}n], ${c_depth}n`;
 }
-
-mouse_wheel(screen, ([x, y], change) => {
-	let cp = [...pos];
-
-	let o_unit = t_unit;
-	let dp = to_cspace([x, y]);
-	let ps = smul(1/o_unit, sub(cp, dp));
-
-	zoom += 0.05*zoom*change;
-	t_unit = unit/zoom;
-
-	if(t_unit >= 4*unit){
-		t_unit /= 2;
-		zoom *= 2;
-
-		//pick child node
-		let os = [0, 0];
-		let sn = 4;
-
-		let p = smul(-1/o_unit, pos);
-		for(let i = 0; i < 9; i++){
-			let o2 = get_subnode_offset(i);
-
-			let d1 = sub(p, os);
-			let d2 = sub(p, o2);
-			if(dot(d1, d1) > dot(d2, d2)){
-				os = o2;
-				sn = i;
-			}
-		}
-
-		path = add(smul(2n, path), [sn % 3, sn / 3 | 0].map(BigInt));
-		c_depth++;
-
-		console.log(c_depth, path);
-
-		ps = smul(2, add(ps, os));
-		tree = get_subnode(qtree, tree, sn);
-		set_qtree(qtree, tree);
-	}
-
-	if(t_unit <= unit){
-		t_unit *= 2;
-		zoom /= 2;
-
-		let p = smul(1/o_unit, pos);
-		let os = [ !(path[0] & 1n)*0.25, -!(path[1] & 1n)*0.25];
-
-		ps = add(smul(0.5, ps), os);
-		c_depth--;
-		path = [path[0] / 2n, path[1] / 2n];
-
-		tree = get_tlnode(c_tree, path, c_depth);
-		set_qtree(qtree, tree);
-	}
-
-	pos = add(smul(t_unit, ps), dp);
-
-	{
-		let p = pos;
-		let v = [
-			Math.sign(-4*p[0]/t_unit | 0),
-			Math.sign(-4*p[1]/t_unit | 0)
-		];
-
-		if(v[0] || v[1]){
-			p = add(p, smul(t_unit/2, v));
-			path = add(path, [BigInt(v[0]), BigInt(-v[1])]);
-
-			tree = get_tlnode();
-			set_qtree(qtree, tree);
-		}
-
-		pos = p;
-
-	}
-});
 
 let get_tlnode = () => {
 	let mask = ~((1n<<c_depth)-1n);
 
 	let path_arr = [
-		path,
+		add(path, [0n, 0n]),
 		add(path, [1n, 0n]),
 		add(path, [0n, 1n]),
 		add(path, [1n, 1n]),
 	];
 
-	if(path_arr.some(v => v[0] & mask || v[1] & mask)){
+	if(path_arr.flat().some(v => v & mask)){
 		let nodes = [white, white, white, white];
-		let ind = (path[0] < 0n) + 2*(path[1] < 0n);
+		let ind = BigInt((path[0] < 0n) + 2*(path[1] < 0n));
+
 		nodes[ind] = c_tree;
 		c_tree = qtree.add_node(0xffffffff, ...nodes);
 
-		
-		let os = smul(1n<<c_depth, [BigInt(ind & 1), BigInt(!!(ind & 2))]);
-		path = add(path, os);
+		let os = smul(1n<<c_depth, [ind&1n,ind>>1n]);
+
 		path_arr = path_arr.map(v => add(v, os));
 
-		c_depth += 1n;
+		path = add(path, os);
+		c_depth++;
 	}
 
 	return qtree.add_node(0xffffffff, ...path_arr.map(v => get_node(c_tree, v, c_depth)));
 }
 
-mouse_pan(screen, () => pos, (p) => {
-	let v = [
-		Math.sign(-4*p[0]/t_unit | 0),
-		Math.sign(-4*p[1]/t_unit | 0)
-	];
 
-	if(v[0] || v[1]){
-		p = add(p, smul(t_unit/2, v));
-		path = add(path, [BigInt(v[0]), BigInt(-v[1])]);
+let update_view = (n_pos, n_zoom, n_path, n_depth) => {
+	while(1 >= 4*n_zoom){
+		n_zoom *= 2;
 
-		tree = get_tlnode();
-		set_qtree(qtree, tree);
+		n_depth++;
+		n_path = add(smul(2n, path), [1n, 1n]);
 	}
 
-	pos = p;
+	while(1 <= n_zoom){
+		n_zoom /= 2;
+
+		let os = smul(unit/n_zoom/4, [!(path[0] & 1n), -!(path[1] & 1n)]);
+		n_pos = add(n_pos, os);
+
+		n_depth--;
+		n_path = [path[0]>>1n, path[1]>>1n];
+	}
+
+	let v = smul(-4*n_zoom/unit, n_pos).map(v => Math.sign(v | 0));
+	if(v[0] || v[1]){
+		n_pos = add(n_pos, smul(unit/(n_zoom*2), v));
+		n_path = add(n_path, [BigInt(v[0]), BigInt(-v[1])]);
+	}
+
+	let update_tree = false;
+	if(n_depth != c_depth || add(path, smul(-1n, n_path)).some(v => v != 0n)){
+		update_tree = true;
+	}
+
+	pos = n_pos;
+	zoom = n_zoom;
+	path = n_path;
+	c_depth = n_depth;
+
+	if(update_tree)
+		set_qtree(qtree, get_tlnode());
+}
+
+/* event listeners */
+mouse_wheel(screen, ([x, y], change) => {
+	let dp = to_cspace([x, y]);
+	let n_zoom = zoom + 0.05*zoom*change;
+
+	update_view(
+		add(smul(zoom/n_zoom, sub(pos, dp)), dp),
+		n_zoom,
+		path, 
+		c_depth
+	);
 });
+
+mouse_pan(screen, () => pos, (n_pos) => update_view(n_pos, zoom, path, c_depth));
+
 screen.addEventListener("contextmenu", (e) => e.preventDefault());
+
+let update_screen = () => {
+	let n_dim = [screen.clientWidth, screen.clientHeight];
+
+	[screen.width, screen.height] = n_dim;
+	gl.viewport(0, 0, ...n_dim);
+	unit = 2*Math.max(...n_dim);
+	rend.set_uniform("center", "vec2", smul(0.5, n_dim));
+	rend.set_uniform("depth", "int", Math.log2(unit) + 4 | 0);
+}
+
+addEventListener("resize", update_screen);
+
+
+
 
 
 let loop = () => {
@@ -303,12 +232,48 @@ let loop = () => {
 		-pos[0], -pos[1], 0, 1
 	]);
 
-	rend.set_uniform("unit", "float", t_unit);
+	rend.set_uniform("unit", "float", unit/zoom);
 	rend.draw();
 
 	requestAnimationFrame(loop);
 }
 
+
+
+
+
+
+
+
+
+/*init tree*/
+let qtree = LinearQtree();
+
+let black = qtree.add_node(0, {ind: 0}, {ind: 0}, {ind: 0}, {ind: 0});
+let white = qtree.add_node(0xffffffff, {ind: 1}, {ind: 1}, {ind: 1}, {ind: 1});
+let cyan = qtree.add_node(0x00ffff00, {ind: 2}, {ind: 2}, {ind: 2}, {ind: 2});
+
+{
+  let a = qtree.add_node(0xffffffff, 0, 0, 0, cyan);
+  let b = qtree.add_node(0xffffffff, 0, 0, 0, white);
+  let t45 = qtree.add_node(0xffffffff, b, b, b, black);
+
+  a.set_node(0, t45);
+  a.set_node(1, a);
+  a.set_node(2, b);
+  a.set_tag(0xffffffff);
+
+  b.set_node(0, t45);
+  b.set_node(1, b);
+  b.set_node(2, a);
+  b.set_tag(0xffff00ff);
+
+  tree = t45
+}
+
+c_tree = tree;
+update_screen();
+set_qtree(qtree, tree);
 loop();
 	</script>
 </html>
