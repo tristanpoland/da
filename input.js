@@ -48,6 +48,6 @@ let mouse_pan = (el, get_pos, set_pos) => {
 
 
 let mouse_wheel = (el, cb) => {
-	el.addEventListener("wheel", (e) => cb([e.clientX, e.clientY], 2*Math.atan(e.deltaY)/Math.PI));
+	el.addEventListener("wheel", (e) => cb([e.clientX, e.clientY], 2*Math.atan(e.deltaY)/Math.PI), {passive: true});
 }
 
