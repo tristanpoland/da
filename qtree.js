@@ -44,8 +44,10 @@ read_uint: (ind) => {
 },
 
 add_node: (t, a, b, c, d) => {
-	if(buffer.length - data_end < 5 * 4)
+	if(buffer.length - data_end < 5 * 4){
 		buffer = new Uint8Array([...buffer, ...Array(buffer.length).fill(0)]);
+		console.log(buffer.length);
+	}
 
 	let ind = data_end / 4;
 	obj.write_uint(ind++, t);
@@ -86,58 +88,3 @@ let get_node = (node, [px, py], depth) => {
 	let ind = !!(px & (1n << depth)) + 2 * !!(py & (1n << depth));
 	return get_node(node.get_node(ind), [px, py], depth);
 }
-
-let get_subnode_offset = (ind) => {
-	return [
-		[-1/4, 1/4],
-		[0, 1/4],
-		[1/4, 1/4],
-		[-1/4, 0],
-		[0, 0],
-		[1/4, 0],
-		[-1/4, -1/4],
-		[0, -1/4],
-		[1/4, -1/4]
-	][ind];
-}
-
-let get_subnode = (qtree, node, ind) => {
-	let nodes = Array(4).fill().map((v, i) => node.get_node(i));
-	return [
-		() => nodes[0],
-		() => qtree.add_node(node.get_tag(), 
-			nodes[0].get_node(1),
-			nodes[1].get_node(0),
-			nodes[0].get_node(3),
-			nodes[1].get_node(2),
-		),
-		() => nodes[1],
-		() => qtree.add_node(node.get_tag(), 
-			nodes[0].get_node(2),
-			nodes[0].get_node(3),
-			nodes[2].get_node(0),
-			nodes[2].get_node(1),
-		),
-		() => qtree.add_node(node.get_tag(), 
-			nodes[0].get_node(3),
-			nodes[1].get_node(2),
-			nodes[2].get_node(1),
-			nodes[3].get_node(0),
-		),
-		() => qtree.add_node(node.get_tag(), 
-			nodes[1].get_node(2),
-			nodes[1].get_node(3),
-			nodes[3].get_node(0),
-			nodes[3].get_node(1),
-		),
-		() => nodes[2],
-		() => qtree.add_node(node.get_tag(), 
-			nodes[2].get_node(1),
-			nodes[3].get_node(0),
-			nodes[2].get_node(3),
-			nodes[3].get_node(2),
-		),
-		() => nodes[3]
-	][ind]();
-}
-
