@@ -80,6 +80,7 @@ void main(){
 				"vec2": (loc, v) => gl.uniform2f(loc, ...v),
 				"vec3": (loc, v) => gl.uniform3f(loc, ...v),
 				"vec4": (loc, v) => gl.uniform4f(loc, ...v),
+				"ivec4": (loc, v) => gl.uniform4i(loc, ...v),
 				"mat4": (loc, v) => gl.uniformMatrix4fv(loc, false, v),
 				"int": (loc, x) => gl.uniform1i(loc, x)
 			};

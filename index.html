@@ -26,39 +26,102 @@ let gl = screen.getContext("webgl");
 let rend = FragmentRenderer(gl,
 `
 precision highp float;
+precision highp int;
+
+uniform vec2 res;
+
 
 uniform vec2 tres;
+uniform int ltwidth;
 uniform sampler2D tex;
 
 uniform vec2 center;
-uniform int node;
+uniform ivec4 node;
 uniform int depth;
 uniform float unit;
 
 
 uniform mat4 transform;
 
-vec2 moddiv(int a, int b){
+/* 32bit int emulation */
+ivec2 moddiv(int a, int b){
 	int div = a / b;
 	int mod = a - div * b;
 
-	return vec2(mod, div);
+	return ivec2(mod, div);
 }
 
-int vec4toint(vec4 val){
-	return int(256.0*val.r) + int(256.0*256.0*val.g) + int(256.0*256.0*256.0*val.b) + int(256.0*256.0*256.0*256.0*val.a);
+ivec4 carry_prop(ivec4 a){
+	ivec2 v;
+
+	v = moddiv(a.r, 256);
+	a.r = v.x;
+	v = moddiv(a.g + v.y, 256);
+	a.g = v.x;
+	v = moddiv(a.b + v.y, 256);
+	a.b = v.x;
+	v = moddiv(a.a + v.y, 256);
+	a.a = v.x;
+
+	return a;
 }
 
-vec4 col_at(int ind){
-	vec2 tc = moddiv(ind, int(tres.x)) / tres;
-	tc.y = 1.0 - tc.y;
+ivec4 rshift8(ivec4 a){
+	return ivec4(a.g, a.b, a.a, 0);
+}
+
+ivec4 rshift07(ivec4 a, int b){
+	int v = int(float(a.r) * pow(0.5, float(b)));
+	a = carry_prop(rshift8(a)*int(pow(2.0,float(8-b))));
+	a.r = a.r + v;
+	return a;
+}
+
+ivec4 rshift(ivec4 a, int b){
+	ivec2 mul = moddiv(b, 7);
+	for(int i = 0; i < 8; i++){
+		if(mul.y - i == 0)
+			break;
+		a = rshift07(a, 7);
+	}
+
+	return rshift07(a, mul.x);
+}
+
+ivec4 lshift(ivec4 a, int b){
+	ivec2 mul = moddiv(b, 7);
+	for(int i = 0; i < 8; i++){
+		if(mul.y - i == 0)
+			break;
+		a = carry_prop(a*int(pow(2.0, 7.0)));
+	}
+
+	return carry_prop(a*int(pow(2.0, float(mul.x))));
+}
+
+ivec4 vec4tonum(vec4 val){
+	return ivec4(int(256.0*val.r), int(256.0*val.g), int(256.0*val.b), int(256.0*val.a));
+}
+
+
+
+
+
+
+vec4 col_at(ivec4 ind){
+	ivec4 v2 = rshift(ind, ltwidth);
+	ivec4 v1 = ind - lshift(v2, ltwidth);
+
+	//vec2 tc = vec2(v1.r + 256*v1.g, v2.r + 256*v2.g) / tres;
+
+	vec2 tc = (vec2(v1.r + 256*v1.g, v2.r + 256*v2.g) + vec2(0.5)) / tres;
+	//tc.y = 1.0 - tc.y;
+
 	return texture2D(tex, tc);
 }
 
-int num_at(int ind){
-	vec2 tc = moddiv(ind, int(tres.x)) / tres;
-	tc.y = 1.0 - tc.y;
-	return vec4toint(texture2D(tex, tc));
+ivec4 num_at(ivec4 ind){
+	return vec4tonum(col_at(ind));
 }
 
 
@@ -67,8 +130,32 @@ void main(){
 	vec2 pos = (transform * vec4(gl_FragCoord.xy, 0.0, 1.0)).xy;
 	vec2 orig = center;
 
-	int ind = node;
+	ivec4 ind = node;
 	float width = unit;
+
+/*
+	if(gl_FragCoord.x < center.x){
+		vec2 p = gl_FragCoord.xy/res;
+		p.x = p.x * 2.0;
+		p.y = 1.0 - p.y;
+
+		gl_FragColor = texture2D(tex, p);
+		gl_FragColor.a = 1.0;
+		return;
+	}
+	else{
+		vec2 p = gl_FragCoord.xy;
+
+		if(p.y > tres.x * tres.y)
+			discard;
+		ivec4 ind = carry_prop(ivec4(p.y, 0, 0, 0));
+
+		gl_FragColor = col_at(ind);
+		gl_FragColor.a = 1.0;
+		return;
+	}
+	*/
+
 
 	if(any(greaterThan(abs(pos - orig), vec2(width*0.5))))
 		discard;
@@ -78,7 +165,10 @@ void main(){
 			break;
 
 		vec2 quad = vec2(pos.x > orig.x, pos.y < orig.y);
-		ind = num_at(ind * 5 + 1 + int(quad.x + 2.0*quad.y));
+		ind = ind * 5;
+		ind.r = ind.r + 1 + int(quad.x + 2.0*quad.y);
+		ind = num_at(carry_prop(ind));
+
 		width = width / 2.0;
 		orig = vec2(quad.x-0.5, 0.5-quad.y)*width + orig;
 	}
@@ -90,18 +180,6 @@ void main(){
 );
 
 
-
-
-let set_qtree = (qtree, node) => {
-	let buffer = qtree.get_buffer();
-	let tex_w = Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE)/4, 1<<12);
-	let num = buffer.length / 4;
-	let [w, h] = num < tex_w ? [num, 1] : [tex_w, num / tex_w];
-
-	rend.set_texture("tex", w, h, buffer);
-	rend.set_uniform("tres", "vec2", [w, h]);
-	rend.set_uniform("node", "int", node.ind);
-}
 
 let add = (a, b) => a.map((v, i) => v + b[i]);
 let smul = (a, b) => b.map(v => v * a);
@@ -124,6 +202,20 @@ let path = [0n, 0n];
 let c_depth = 1n;
 let c_tree;
 let redraw = false;
+
+let set_qtree = (node) => {
+	let depth = Math.log2(unit) + 4 | 0;
+	let buffer = sub_tree(node, depth).get_buffer();
+
+	let tex_w = Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE), 1<<16);
+	let num = buffer.length / 4;
+	let [w, h] = num < tex_w ? [num, 1] : [tex_w, num / tex_w];
+
+	rend.set_texture("tex", w, h, buffer);
+	rend.set_uniform("ltwidth", "int", Math.log2(w));
+	rend.set_uniform("tres", "vec2", [w, h]);
+	rend.set_uniform("node", "ivec4", [0, 0, 0, 0]);
+}
 
 let get_location = () => {
 	return `[${pos}], ${zoom}, [${path[0]}n, ${path[1]}n], ${c_depth}n`;
@@ -194,7 +286,7 @@ let update_view = (n_pos, n_zoom, n_path, n_depth) => {
 	c_depth = n_depth;
 
 	if(update_tree)
-		set_qtree(qtree, get_tlnode());
+		set_qtree(get_tlnode());
 
 	redraw = true;
 }
@@ -236,6 +328,7 @@ let update_screen = () => {
 	gl.viewport(0, 0, ...n_dim);
 	unit = 2*Math.max(...n_dim);
 	rend.set_uniform("center", "vec2", smul(0.5, n_dim));
+	rend.set_uniform("res", "vec2", n_dim);
 	rend.set_uniform("depth", "int", Math.log2(unit) + 4 | 0);
 
 	redraw = true;
@@ -300,7 +393,7 @@ let cyan = qtree.add_node(0x00ffff00, {ind: 2}, {ind: 2}, {ind: 2}, {ind: 2});
 
 c_tree = tree;
 update_screen();
-set_qtree(qtree, tree);
+set_qtree(tree);
 loop();
 	</script>
 </html>
