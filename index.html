@@ -109,24 +109,15 @@ ivec4 lshift(ivec4 a, int b){
 }
 
 ivec4 vec4tonum(vec4 val){
-	return ivec4(int(256.0*val.r), int(256.0*val.g), int(256.0*val.b), int(256.0*val.a));
+	return ivec4(int(255.0*val.r), int(255.0*val.g), int(255.0*val.b), int(255.0*val.a));
 }
-
-
-
-
 
 
 vec4 col_at(ivec4 ind){
 	ivec4 v2 = rshift(ind, ltwidth);
 	ivec4 v1 = ind - lshift(v2, ltwidth);
 
-	//vec2 tc = vec2(v1.r + 256*v1.g, v2.r + 256*v2.g) / tres;
-
-	//vec2 tc = (vec2(v1.r + 256*v1.g, v2.r + 256*v2.g) + vec2(0.5)) / tres;
-	vec2 tc = vec2(v1.r + 256*v1.g, v2.r + 256*v2.g) / tres;
-	//tc.y = 1.0 - tc.y;
-
+	vec2 tc = (vec2(v1.r + 256*v1.g, v2.r + 256*v2.g) + vec2(0.5)) / tres;
 	return texture2D(tex, tc);
 }
 
@@ -142,30 +133,6 @@ void main(){
 
 	ivec4 ind = node;
 	float width = unit;
-
-/*
-	if(gl_FragCoord.x < center.x){
-		vec2 p = gl_FragCoord.xy/res;
-		p.x = p.x * 2.0;
-		p.y = 1.0 - p.y;
-
-		gl_FragColor = texture2D(tex, p);
-		gl_FragColor.a = 1.0;
-		return;
-	}
-	else{
-		vec2 p = gl_FragCoord.xy;
-
-		if(p.y > tres.x * tres.y)
-			discard;
-		ivec4 ind = carry_prop(ivec4(p.y, 0, 0, 0));
-
-		gl_FragColor = col_at(ind);
-		gl_FragColor.a = 1.0;
-		return;
-	}
-	*/
-
 
 	for(int i = 0; i < 16; i++){
 		if(i >= depth)
@@ -205,6 +172,10 @@ let zoom = 1;
 let path = [0n, 0n];
 let c_depth = 1n;
 let c_tree;
+
+let tree_dirty = false;
+let tree;
+
 let redraw = false;
 let update_tree = false;
 
@@ -213,18 +184,8 @@ let get_path = ([x, y], depth) => {
 	let orig = [screen.width/2, screen.height/2];
 	let width = unit/zoom;
 
-	let pa = [...path]
-	let de = c_depth;
-
-	let quad = [p[0] > orig[0], p[1] < orig[1]];
-	
-	pa = [
-		BigInt(quad[0]) + pa[0], 
-		BigInt(quad[1]) + pa[1]
-	];
-
-	width /= 2;
-	orig = add(smul(width, [quad[0]-0.5, 0.5-quad[1]]), orig);
+	let pa = [0n, 0n]
+	let de = 0n;
 
 	for(let i = 0; i < depth; i++){
 		quad = [p[0] > orig[0], p[1] < orig[1]];
@@ -246,8 +207,6 @@ let set_qtree = (node) => {
 	let depth = Math.log2(unit) + 4 | 0;
 	let [tree, t_node] = sub_tree(node, depth);
 	let buffer = tree.get_buffer();
-	//let buffer = qtree.get_buffer();
-
 
 	let num = Math.log2(buffer.length / 4);
 	let [w, h] = [(num / 2 | 0) + (num & 1), num / 2 | 0];
@@ -262,13 +221,6 @@ let set_qtree = (node) => {
 		(t_node.ind >> 16) & 0xff,
 		(t_node.ind >> 24) & 0xff
 	]);
-	/*rend.set_uniform("node", "ivec4", [
-		(node.ind >> 0) & 0xff,
-		(node.ind >> 8) & 0xff,
-		(node.ind >> 16) & 0xff,
-		(node.ind >> 24) & 0xff
-	]);*/
-
 }
 
 let get_location = () => {
@@ -329,8 +281,24 @@ let update_view = (n_pos, n_zoom, n_path, n_depth) => {
 		n_path = add(n_path, [BigInt(v[0]), BigInt(-v[1])]);
 	}
 
-	if(n_depth != c_depth || add(path, smul(-1n, n_path)).some(v => v != 0n))
+	if(n_depth != c_depth || add(path, smul(-1n, n_path)).some(v => v != 0n)){
 		update_tree = true;
+	}
+
+	if(tree_dirty && update_tree){
+		let path_arr = [
+			add(path, [0n, 0n]),
+			add(path, [1n, 0n]),
+			add(path, [0n, 1n]),
+			add(path, [1n, 1n]),
+		];
+
+		path_arr.map((v, i) => {
+			c_tree = replace_node(qtree, c_tree, v, c_depth, tree.get_node(i));
+		});
+
+		tree_dirty = false;
+	}
 
 	pos = n_pos;
 	zoom = n_zoom;
@@ -338,6 +306,11 @@ let update_view = (n_pos, n_zoom, n_path, n_depth) => {
 	c_depth = n_depth;
 
 	redraw = true;
+	if(update_tree){
+
+		tree = get_tlnode();
+	}
+
 }
 
 /* event listeners */
@@ -364,13 +337,13 @@ touch_pinch(screen, ([x, y], change) => {
 	);
 });
 
-
 mouse_pan(screen, () => pos, (n_pos) => update_view(n_pos, zoom, path, c_depth));
 touch_pan(screen, () => pos, (n_pos) => update_view(n_pos, zoom, path, c_depth));
 
 pointer_drag(screen, (p) => {
 	let path = get_path(p, 8);
-	c_tree = replace_node(qtree, c_tree, ...path, qtree.color(0xff0000ff));
+	tree = replace_node(qtree, tree, ...path, qtree.color(0xff0000ff));
+	tree_dirty = true;
 	update_tree = true;
 })
 
@@ -398,7 +371,7 @@ let loop = () => {
 	if(update_tree){
 		update_tree = false;
 		redraw = true;
-		set_qtree(get_tlnode());
+		set_qtree(tree);
 	}
 
 	if(redraw){
@@ -456,7 +429,7 @@ c_tree = tree;
 
 c_tree = qtree.color(0xffffffff);
 update_screen();
-set_qtree(c_tree);
+set_qtree(tree = c_tree);
 loop();
 	</script>
 </html>
