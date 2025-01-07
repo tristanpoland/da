@@ -1,4 +1,5 @@
 let LinearQtree = () => {
+	let col_memo = new Map(); //??
 	let memo = new Map();
 	let buffer = new Uint8Array(256 * 4);
 	let data_end = 0;
@@ -11,7 +12,6 @@ node_at: (ind) => {
 		get_tag: () => obj.read_uint(ind * 5),
 		set_tag: (t) => obj.write_uint(ind * 5, t),
 		set_node: (i, nd) => obj.write_uint(ind * 5 + i + 1, nd.ind),
-		hash: () => Array(5).fill().map((v, i) => obj.read_uint(ind*5 + i)).reduce((a, b) => (a << 32n) + BigInt(b), 0n)
 	};
 
 	return node;
@@ -24,14 +24,10 @@ forEach: (fn) => {
 
 write_uint: (ind, num) => {
 	ind *= 4;
-	buffer[ind++] = num & 0xff;
-	num >>= 8;
-	buffer[ind++] = num & 0xff;
-	num >>= 8;
-	buffer[ind++] = num & 0xff;
-	num >>= 8;
-	buffer[ind++] = num & 0xff;
-	num >>= 8;
+	buffer[ind++] = (num >> 0) & 0xff;
+	buffer[ind++] = (num >> 8) & 0xff;
+	buffer[ind++] = (num >> 16) & 0xff;
+	buffer[ind++] = (num >> 24) & 0xff;
 },
 
 read_uint: (ind) => {
@@ -44,18 +40,44 @@ read_uint: (ind) => {
 	return num;
 },
 
-add_node: (t, a, b, c, d) => {
+add_node: (t, ...nodes) => {
 	if(buffer.length - data_end < 5 * 4)
 		buffer = new Uint8Array([...buffer, ...Array(buffer.length).fill(0)]);
 
+	let vals = [t, ...nodes.map(v => v?.ind)];
 	let my_ind = data_end/20;
-	let vals = [t, a?.ind ?? my_ind, b?.ind ?? my_ind, c?.ind ?? my_ind, d?.ind ?? my_ind];
 
 	let ind = data_end / 4;
 	vals.map((v, i) => obj.write_uint(ind + i, v));
 	data_end += 20;
 
 	return obj.node_at(my_ind);
+},
+
+color: (t) => {
+	if(col_memo.has(t))
+		return obj.node_at(col_memo.get(t));
+
+	let node = obj.add_node(t);
+	col_memo.set(t, node.ind);
+
+	for(let i = 0; i < 4; i++)
+		node.set_node(i, node);
+
+	memo.set(hash_node(node), node.ind);
+	return node;
+},
+
+node: (...nodes) => {
+	let vals = nodes.map(v => v.ind);
+	let hash = vals.reduce((a, b) => (a << 32n) + BigInt(b), 0n);
+	if(memo.has(hash))
+		return obj.node_at(memo.get(hash));
+
+	let t = avg_color(nodes.map(v => v.get_tag()));
+	let node = obj.add_node(t, ...nodes);
+	memo.set(hash, node.ind);
+	return node;
 },
 
 get_buffer: () => buffer,
@@ -65,17 +87,45 @@ get_memo: () => memo
 	return obj;
 }
 
+let hash_node = (node) => {
+	return Array(4).fill().map((v, i) => node.get_node(i).ind)
+		.reduce((a, b) => (a << 32n) + BigInt(b), 0n);
+}
+
+let log = (fn) => (...x) => (console.log(...x), fn(...x));
+let id = (x) => x;
+let avg_color = (cols) => {
+	let add = (a, b) => a.map((v, i) => v + b[i]);
+	return cols.map(v => [
+		(v >> 24) & 0xff,
+		(v >> 16) & 0xff,
+		(v >> 8) & 0xff,
+		(v >> 0) & 0xff
+	])
+		.reduce(add)
+		.map(v => (v/cols.length | 0) % 256)
+		.reduce((a, b) => a*256 + b, 0);
+}
 
 let replace_node = (qtree, node, [x, y], depth, val) => {
-	if(depth == 0n)
-		return val;
+	let stack = [];
 
-	depth--;
-	let ind = !!(x & (1n << depth)) + 2*!!(y & (1n << depth));
-	let nodes = Array(4).fill().map((v, i) => node.get_node(i));
+	while(depth){
+		depth--;
+		let ind = !!(x & (1n << depth)) + 2*!!(y & (1n << depth));
+		stack.push([node, ind]);
+		node = node.get_node(ind); 
+	}
 
-	nodes[ind] = replace_node(qtree, nodes[ind], [x, y], depth, val)
-	return qtree.add_node(node.get_tag(), ...nodes);
+	while(stack.length){
+		let ind;
+		[node, ind] = stack.pop();
+		let nodes = Array(4).fill().map((v, i) => node.get_node(i));
+		nodes[ind] = val; 
+		val = qtree.node(...nodes);
+	}
+
+	return val;
 }
 
 let get_node = (node, [px, py], depth) => {
@@ -92,28 +142,14 @@ let get_node = (node, [px, py], depth) => {
 let sub_tree = (node, depth = -1) => {
 	let new_tree = LinearQtree();
 
-	let ind = 0;
-	let seen = new Map();
-
 	let sub_tree_ = (node, depth) => {
-		if(seen.has(node.hash()))
-			return seen.get(node.hash());
-
-		let new_node = new_tree.add_node(node.get_tag());
-		seen.set(node.hash(), new_node);
-
-		if(depth == 0)
-			return new_node;
-
 		let nodes = Array(4).fill().map((v, i) => node.get_node(i));
+		if(depth == 0 || nodes.every(v => v.ind == node.ind))
+			return new_tree.color(node.get_tag());
 
-		nodes.map((v, i) => 
-			new_node.set_node(i, sub_tree_(v, depth - 1)));
-
-		return new_node;
+		return new_tree.node(...nodes.map(v => sub_tree_(v, depth-1)));
 	}
 
-	sub_tree_(node, depth);
-	return new_tree;
+	return [new_tree, sub_tree_(node, depth)];
 }
 

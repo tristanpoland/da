@@ -54,8 +54,8 @@ uniform mat4 transform;
 
 /* 32bit int emulation */
 ivec2 moddiv(int a, int b){
-	int div = a / b;
-	int mod = a - div * b;
+	int div = int(a / b);
+	int mod = int(a - div * b);
 
 	return ivec2(mod, div);
 }
@@ -123,7 +123,8 @@ vec4 col_at(ivec4 ind){
 
 	//vec2 tc = vec2(v1.r + 256*v1.g, v2.r + 256*v2.g) / tres;
 
-	vec2 tc = (vec2(v1.r + 256*v1.g, v2.r + 256*v2.g) + vec2(0.5)) / tres;
+	//vec2 tc = (vec2(v1.r + 256*v1.g, v2.r + 256*v2.g) + vec2(0.5)) / tres;
+	vec2 tc = vec2(v1.r + 256*v1.g, v2.r + 256*v2.g) / tres;
 	//tc.y = 1.0 - tc.y;
 
 	return texture2D(tex, tc);
@@ -166,9 +167,6 @@ void main(){
 	*/
 
 
-	if(any(greaterThan(abs(pos - orig), vec2(width*0.5))))
-		discard;
-
 	for(int i = 0; i < 16; i++){
 		if(i >= depth)
 			break;
@@ -200,9 +198,6 @@ let to_cspace = ([x, y]) => [x - screen.width/2, screen.height/2 - y];
 
 
 
-
-
-
 /*TODO remove globals*/
 let unit;
 let pos = [0, 0];
@@ -211,19 +206,69 @@ let path = [0n, 0n];
 let c_depth = 1n;
 let c_tree;
 let redraw = false;
+let update_tree = false;
+
+let get_path = ([x, y], depth) => {
+	let p = sub([x, screen.height - y], pos);
+	let orig = [screen.width/2, screen.height/2];
+	let width = unit/zoom;
+
+	let pa = [...path]
+	let de = c_depth;
+
+	let quad = [p[0] > orig[0], p[1] < orig[1]];
+	
+	pa = [
+		BigInt(quad[0]) + pa[0], 
+		BigInt(quad[1]) + pa[1]
+	];
+
+	width /= 2;
+	orig = add(smul(width, [quad[0]-0.5, 0.5-quad[1]]), orig);
+
+	for(let i = 0; i < depth; i++){
+		quad = [p[0] > orig[0], p[1] < orig[1]];
+
+		pa = [
+			BigInt(quad[0]) + 2n*pa[0], 
+			BigInt(quad[1]) + 2n*pa[1]
+		];
+
+		de++;
+		width /= 2;
+		orig = add(smul(width, [quad[0]-0.5, 0.5-quad[1]]), orig);
+	}
+
+	return [pa, de];
+}
 
 let set_qtree = (node) => {
 	let depth = Math.log2(unit) + 4 | 0;
-	let buffer = sub_tree(node, depth).get_buffer();
+	let [tree, t_node] = sub_tree(node, depth);
+	let buffer = tree.get_buffer();
+	//let buffer = qtree.get_buffer();
 
-	let tex_w = Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE), 1<<16);
-	let num = buffer.length / 4;
-	let [w, h] = num < tex_w ? [num, 1] : [tex_w, num / tex_w];
 
-	rend.set_texture("tex", w, h, buffer);
-	rend.set_uniform("ltwidth", "int", Math.log2(w));
-	rend.set_uniform("tres", "vec2", [w, h]);
-	rend.set_uniform("node", "ivec4", [0, 0, 0, 0]);
+	let num = Math.log2(buffer.length / 4);
+	let [w, h] = [(num / 2 | 0) + (num & 1), num / 2 | 0];
+
+	rend.set_texture("tex", 2**w, 2**h, buffer);
+	rend.set_uniform("ltwidth", "int", w);
+	rend.set_uniform("tres", "vec2", [2**w, 2**h]);
+	rend.set_uniform("depth", "int", depth);
+	rend.set_uniform("node", "ivec4", [
+		(t_node.ind >> 0) & 0xff,
+		(t_node.ind >> 8) & 0xff,
+		(t_node.ind >> 16) & 0xff,
+		(t_node.ind >> 24) & 0xff
+	]);
+	/*rend.set_uniform("node", "ivec4", [
+		(node.ind >> 0) & 0xff,
+		(node.ind >> 8) & 0xff,
+		(node.ind >> 16) & 0xff,
+		(node.ind >> 24) & 0xff
+	]);*/
+
 }
 
 let get_location = () => {
@@ -241,11 +286,11 @@ let get_tlnode = () => {
 	];
 
 	while(path_arr.flat().some(v => v & mask)){
-		let nodes = [white, white, white, white];
+		let nodes = Array(4).fill(qtree.color(0xffffffff));
 		let ind = BigInt((path[0] < 0n) + 2*(path[1] < 0n));
 
 		nodes[ind] = c_tree;
-		c_tree = qtree.add_node(0xffffffff, ...nodes);
+		c_tree = qtree.node(...nodes);
 
 		let os = smul(1n<<c_depth, [ind&1n,ind>>1n]);
 
@@ -256,7 +301,7 @@ let get_tlnode = () => {
 		mask <<= 1n;
 	}
 
-	return qtree.add_node(0xffffffff, ...path_arr.map(v => get_node(c_tree, v, c_depth)));
+	return qtree.node(...path_arr.map(v => get_node(c_tree, v, c_depth)));
 }
 
 
@@ -268,7 +313,7 @@ let update_view = (n_pos, n_zoom, n_path, n_depth) => {
 		n_path = add(smul(2n, path), [1n, 1n]);
 	}
 
-	while(1 <= n_zoom){
+	while(1 < n_zoom){
 		n_zoom /= 2;
 
 		let os = smul(unit/n_zoom/4, [!(path[0] & 1n), -!(path[1] & 1n)]);
@@ -284,18 +329,13 @@ let update_view = (n_pos, n_zoom, n_path, n_depth) => {
 		n_path = add(n_path, [BigInt(v[0]), BigInt(-v[1])]);
 	}
 
-	let update_tree = false;
-	if(n_depth != c_depth || add(path, smul(-1n, n_path)).some(v => v != 0n)){
+	if(n_depth != c_depth || add(path, smul(-1n, n_path)).some(v => v != 0n))
 		update_tree = true;
-	}
 
 	pos = n_pos;
 	zoom = n_zoom;
 	path = n_path;
 	c_depth = n_depth;
-
-	if(update_tree)
-		set_qtree(get_tlnode());
 
 	redraw = true;
 }
@@ -328,6 +368,12 @@ touch_pinch(screen, ([x, y], change) => {
 mouse_pan(screen, () => pos, (n_pos) => update_view(n_pos, zoom, path, c_depth));
 touch_pan(screen, () => pos, (n_pos) => update_view(n_pos, zoom, path, c_depth));
 
+pointer_drag(screen, (p) => {
+	let path = get_path(p, 8);
+	c_tree = replace_node(qtree, c_tree, ...path, qtree.color(0xff0000ff));
+	update_tree = true;
+})
+
 screen.addEventListener("contextmenu", (e) => e.preventDefault());
 
 let update_screen = () => {
@@ -338,7 +384,6 @@ let update_screen = () => {
 	unit = 2*Math.max(...n_dim);
 	rend.set_uniform("center", "vec2", smul(0.5, n_dim));
 	rend.set_uniform("res", "vec2", n_dim);
-	rend.set_uniform("depth", "int", Math.log2(unit) + 4 | 0);
 
 	redraw = true;
 }
@@ -350,6 +395,11 @@ addEventListener("resize", update_screen);
 
 
 let loop = () => {
+	if(update_tree){
+		update_tree = false;
+		redraw = true;
+		set_qtree(get_tlnode());
+	}
 
 	if(redraw){
 		redraw = false;
@@ -378,6 +428,7 @@ let loop = () => {
 /*init tree*/
 let qtree = LinearQtree();
 
+/*
 let black = qtree.add_node(0, {ind: 0}, {ind: 0}, {ind: 0}, {ind: 0});
 let white = qtree.add_node(0xffffffff, {ind: 1}, {ind: 1}, {ind: 1}, {ind: 1});
 let cyan = qtree.add_node(0x00ffff00, {ind: 2}, {ind: 2}, {ind: 2}, {ind: 2});
@@ -401,8 +452,11 @@ let cyan = qtree.add_node(0x00ffff00, {ind: 2}, {ind: 2}, {ind: 2}, {ind: 2});
 }
 
 c_tree = tree;
+*/
+
+c_tree = qtree.color(0xffffffff);
 update_screen();
-set_qtree(tree);
+set_qtree(c_tree);
 loop();
 	</script>
 </html>

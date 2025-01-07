@@ -150,3 +150,29 @@ let touch_pinch = (el, cb) => {
 	state = poll;
 	return Pointer(el, add_pointer, (ev) => state(ev), del_pointer);
 }
+
+
+
+
+
+let pointer_drag = (el, cb) => {
+	let state, drag, poll;
+
+	drag = (ev) => {
+		cb([ev.x, ev.y]);
+
+		if(ev.buttons != 1)
+			state = poll;
+	};
+
+	poll = (ev) => {
+		if(ev.buttons == 1)
+			state = drag;
+	};
+
+	state = poll;
+	return Pointer(el, (ev) => state(ev));
+}
+
+
+
