@@ -38,12 +38,9 @@ precision highp float;
 precision highp int;
 
 uniform vec2 res;
-
-
 uniform vec2 tres;
 uniform int ltwidth;
 uniform sampler2D tex;
-
 uniform vec2 center;
 uniform ivec4 node;
 uniform int depth;
@@ -54,9 +51,7 @@ uniform mat4 transform;
 
 /* 32bit int emulation */
 ivec2 moddiv(int a, int b){
-	int div = int(a / b);
-	int mod = int(a - div * b);
-
+	int div = a / b, mod = a - div * b;
 	return ivec2(mod, div);
 }
 
@@ -75,9 +70,7 @@ ivec4 carry_prop(ivec4 a){
 	return a;
 }
 
-ivec4 rshift8(ivec4 a){
-	return ivec4(a.g, a.b, a.a, 0);
-}
+ivec4 rshift8(ivec4 a){return ivec4(a.g, a.b, a.a, 0);}
 
 ivec4 rshift07(ivec4 a, int b){
 	int v = int(float(a.r) * pow(0.5, float(b)));
@@ -108,9 +101,6 @@ ivec4 lshift(ivec4 a, int b){
 	return carry_prop(a*int(pow(2.0, float(mul.x))));
 }
 
-ivec4 vec4tonum(vec4 val){
-	return ivec4(int(255.0*val.r), int(255.0*val.g), int(255.0*val.b), int(255.0*val.a));
-}
 
 
 vec4 col_at(ivec4 ind){
@@ -121,9 +111,8 @@ vec4 col_at(ivec4 ind){
 	return texture2D(tex, tc);
 }
 
-ivec4 num_at(ivec4 ind){
-	return vec4tonum(col_at(ind));
-}
+ivec4 vec4tonum(vec4 val){return ivec4(255.0*val + 0.5);}
+ivec4 num_at(ivec4 ind){return vec4tonum(col_at(ind));}
 
 
 
@@ -147,7 +136,7 @@ void main(){
 		orig = vec2(quad.x-0.5, 0.5-quad.y)*width + orig;
 	}
 
-	gl_FragColor = col_at(ind*5);
+	gl_FragColor = col_at(carry_prop(ind*5));
 	gl_FragColor.a = 1.0;
 }
 `
