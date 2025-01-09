@@ -46,6 +46,7 @@ uniform ivec4 node;
 uniform int depth;
 uniform float unit;
 
+uniform int debug;
 
 uniform mat4 transform;
 
@@ -123,6 +124,30 @@ void main(){
 	ivec4 ind = node;
 	float width = unit;
 
+	if(debug == 1 && gl_FragCoord.x < center.x){
+		vec2 p = gl_FragCoord.xy/res;
+		p.x = p.x * 2.0;
+		p.y = 1.0 - p.y;
+
+		gl_FragColor = texture2D(tex, p);
+		gl_FragColor.a = 1.0;
+		return;
+	}
+/*
+	else{
+		vec2 p = gl_FragCoord.xy;
+
+		if(p.y > tres.x * tres.y)
+			discard;
+		ivec4 ind = carry_prop(ivec4(p.y, 0, 0, 0));
+
+		gl_FragColor = col_at(ind);
+		gl_FragColor.a = 1.0;
+		return;
+	}
+	*/
+
+
 	for(int i = 0; i < 16; i++){
 		if(i >= depth)
 			break;
@@ -150,7 +175,6 @@ let sub = (a, b) => add(a, smul(-1, b));
 let dot = (a, b) => a.map((v, i) => v * b[i]).reduce((a, b) => a + b);
 let length = (a) => dot(a, a)**0.5;
 let norm = (a) => smul(1/length(a), a);
-let to_cspace = ([x, y]) => [x - screen.width/2, screen.height/2 - y];
 
 
 
@@ -193,16 +217,18 @@ let get_path = ([x, y], depth) => {
 }
 
 let set_qtree = (node) => {
-	let depth = Math.log2(unit) + 4 | 0;
+	let depth = Math.min(Math.log2(unit) + 2 | 0, 16);
 	let [tree, t_node] = sub_tree(node, depth);
 	let buffer = tree.get_buffer();
 
-	let num = Math.log2(buffer.length / 4);
-	let [w, h] = [(num / 2 | 0) + (num & 1), num / 2 | 0];
+	let tex_w = Math.min(gl.getParameter(gl.MAX_TEXTURE_SIZE)/4, 1<<12);
+	let num = tree.get_size() * 5;
+	let sr = (Math.log2(num)/2 + 1) | 0;
+	let [w, h] = [2**sr,(num/2**sr | 0) + !!(num % 2**sr)];
 
-	rend.set_texture("tex", 2**w, 2**h, buffer);
-	rend.set_uniform("ltwidth", "int", w);
-	rend.set_uniform("tres", "vec2", [2**w, 2**h]);
+	rend.set_texture("tex", w, h, buffer);
+	rend.set_uniform("ltwidth", "int", sr);
+	rend.set_uniform("tres", "vec2", [w, h]);
 	rend.set_uniform("depth", "int", depth);
 	rend.set_uniform("node", "ivec4", [
 		(t_node.ind >> 0) & 0xff,
@@ -303,6 +329,7 @@ let update_view = (n_pos, n_zoom, n_path, n_depth) => {
 }
 
 /* event listeners */
+let to_cspace = ([x, y]) => [x - screen.width/2, screen.height/2 - y];
 mouse_wheel(screen, ([x, y], change) => {
 	let dp = to_cspace([x, y]);
 	let n_zoom = zoom + 0.05*zoom*change;
@@ -353,6 +380,19 @@ let update_screen = () => {
 addEventListener("resize", update_screen);
 
 
+Keyboard(window, (key) => {
+	if(key == 70){
+		rend.set_uniform("debug", "int", 1);
+		redraw = true;
+	}
+}, (key) => {
+	if(key == 70){
+		rend.set_uniform("debug", "int", 0);
+		redraw = true;
+	}
+});
+
+
 
 
 
@@ -389,35 +429,9 @@ let loop = () => {
 
 /*init tree*/
 let qtree = LinearQtree();
-
-/*
-let black = qtree.add_node(0, {ind: 0}, {ind: 0}, {ind: 0}, {ind: 0});
-let white = qtree.add_node(0xffffffff, {ind: 1}, {ind: 1}, {ind: 1}, {ind: 1});
-let cyan = qtree.add_node(0x00ffff00, {ind: 2}, {ind: 2}, {ind: 2}, {ind: 2});
-
-{
-  let a = qtree.add_node(0xffffffff, 0, 0, 0, cyan);
-  let b = qtree.add_node(0xffffffff, 0, 0, 0, white);
-  let t45 = qtree.add_node(0xffffffff, b, b, b, black);
-
-  a.set_node(0, t45);
-  a.set_node(1, a);
-  a.set_node(2, b);
-  a.set_tag(0xffffffff);
-
-  b.set_node(0, t45);
-  b.set_node(1, b);
-  b.set_node(2, a);
-  b.set_tag(0xffff00ff);
-
-  tree = t45
-}
-
-c_tree = tree;
-*/
-
 c_tree = qtree.color(0xffffffff);
 update_screen();
+rend.set_uniform("debug", "int", 0);
 set_qtree(tree = c_tree);
 loop();
 	</script>
