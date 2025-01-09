@@ -1,3 +1,9 @@
+
+let hash_node = (node) => {
+	return Array(4).fill().map((v, i) => node.get_node(i).ind)
+		.reduce((a, b) => (a << 32n) + BigInt(b), 0n);
+}
+
 let LinearQtree = () => {
 	let col_memo = new Map(); //??
 	let memo = new Map();
@@ -81,19 +87,16 @@ node: (...nodes) => {
 },
 
 get_buffer: () => buffer,
-get_memo: () => memo
+get_memo: () => memo,
+get_size: () => data_end/20
 	};
 
 	return obj;
 }
 
-let hash_node = (node) => {
-	return Array(4).fill().map((v, i) => node.get_node(i).ind)
-		.reduce((a, b) => (a << 32n) + BigInt(b), 0n);
-}
-
 let log = (fn) => (...x) => (console.log(...x), fn(...x));
 let id = (x) => x;
+
 let avg_color = (cols) => {
 	let add = (a, b) => a.map((v, i) => v + b[i]);
 	return cols.map(v => [
@@ -107,6 +110,12 @@ let avg_color = (cols) => {
 		.reduce((a, b) => a*256 + b, 0);
 }
 
+let set_node = (qtree, node, ind, val) => {
+	let nodes = Array(4).fill().map((v, i) => node.get_node(i));
+	nodes[ind] = val; 
+	return qtree.node(...nodes);
+}
+
 let replace_node = (qtree, node, [x, y], depth, val) => {
 	let stack = [];
 
@@ -117,12 +126,15 @@ let replace_node = (qtree, node, [x, y], depth, val) => {
 		node = node.get_node(ind); 
 	}
 
+	
+	if(node == val){
+		return stack[0][0];
+	}
+
 	while(stack.length){
 		let ind;
 		[node, ind] = stack.pop();
-		let nodes = Array(4).fill().map((v, i) => node.get_node(i));
-		nodes[ind] = val; 
-		val = qtree.node(...nodes);
+		val = set_node(qtree, node, ind, val)
 	}
 
 	return val;
@@ -141,15 +153,98 @@ let get_node = (node, [px, py], depth) => {
 
 let sub_tree = (node, depth = -1) => {
 	let new_tree = LinearQtree();
+	let seen = new Map();
 
 	let sub_tree_ = (node, depth) => {
+		if(seen.has(node.ind)){
+			let [de, nd] = seen.get(node.ind);
+			if(de >= depth)
+				return nd;
+		}
+
 		let nodes = Array(4).fill().map((v, i) => node.get_node(i));
 		if(depth == 0 || nodes.every(v => v.ind == node.ind))
 			return new_tree.color(node.get_tag());
 
-		return new_tree.node(...nodes.map(v => sub_tree_(v, depth-1)));
+		let new_nd = new_tree.node(...nodes.map(v => sub_tree_(v, depth-1)));
+		seen.set(node.ind, [depth, new_nd]);
+		return new_nd;
 	}
 
 	return [new_tree, sub_tree_(node, depth)];
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+let QtreePath = (qtree, node) => {
+	let path;
+
+	let obj = {
+cur: () => path.at(-1)[0],
+set_cur: (val) => path.at(-1)[0] = val,
+desc: (ind) => path.push([obj.cur().get_node(ind), ind]),
+asc: () => path.pop(),
+set_path: ([px, py], depth) => {
+	/* stack limit bites */
+	path = [[node, null]];
+	while(depth != 0){
+		depth--;
+		let ind = !!(px & (1n << depth)) + 2*!!(py & (1n << depth));
+		obj.desc(ind);
+	}
+
+	return obj.cur();
+},
+add: ([x, y]) => {
+	let stack = [];
+	let bit = 1n;
+
+	let carry = 0;
+	while(x >= bit || y >= bit || carry){
+		let io = !!(x & bit) + 2 * !!(y & bit);
+		let [n1, ind] = obj.asc();
+
+		if(path.length == 0){
+			ind = (x < 0) + 2*(y < 0);
+			path.push([qtree.color(0xffffffff), null]);
+		}
+
+		stack.push(ind ^ io ^ carry);
+		carry = (io & carry) | ((io ^ carry) & ind);
+
+		let cur = path.at(-1);
+		cur[0] = set_node(qtree, cur[0], ind, n1);
+
+		bit <<= 1n;
+	}
+
+	while(stack.length)
+		obj.desc(stack.pop());
+
+	return obj.cur();
+},
+get_root: () => {
+	for(let i = path.length-1; i--;)
+		path[i][0] = set_node(qtree, path[i][0], path[i+1][1], path[i+1][0]);
+
+	return path[0][0];
+}
+
+	}
+
+	return obj;
+}
+
 
