@@ -182,12 +182,10 @@ let norm = (a) => smul(1/length(a), a);
 let unit;
 let pos = [0, 0];
 let zoom = 1;
-let path = [0n, 0n];
-let c_depth = 1n;
-let c_tree;
+let path;
 
 let tree_dirty = false;
-let tree;
+let cursor_path;
 
 let redraw = false;
 let update_tree = false;
@@ -238,95 +236,100 @@ let set_qtree = (node) => {
 	]);
 }
 
-let get_location = () => {
-	return `[${pos}], ${zoom}, [${path[0]}n, ${path[1]}n], ${c_depth}n`;
-}
-
 let get_tlnode = () => {
-	let mask = ~((1n<<c_depth)-1n);
-
-	let path_arr = [
-		add(path, [0n, 0n]),
-		add(path, [1n, 0n]),
-		add(path, [0n, 1n]),
-		add(path, [1n, 1n]),
+	let offsets = [
+		[[1n, 0n], 0],
+		[[0n, 1n], 1],
+		[[-1n, 0n], 3],
+		[[0n, -1n], 2]
 	];
 
-	while(path_arr.flat().some(v => v & mask)){
-		let nodes = Array(4).fill(qtree.color(0xffffffff));
-		let ind = BigInt((path[0] < 0n) + 2*(path[1] < 0n));
+	let nodes = Array(4).fill();
+	offsets.forEach(([v, i]) => {
+		nodes[i] = path.cur();
+		path.add(v);
+	});
 
-		nodes[ind] = c_tree;
-		c_tree = qtree.node(...nodes);
-
-		let os = smul(1n<<c_depth, [ind&1n,ind>>1n]);
-
-		path_arr = path_arr.map(v => add(v, os));
-
-		path = add(path, os);
-		c_depth++;
-		mask <<= 1n;
-	}
-
-	return qtree.node(...path_arr.map(v => get_node(c_tree, v, c_depth)));
+	return qtree.node(...nodes);
 }
 
 
-let update_view = (n_pos, n_zoom, n_path, n_depth) => {
+let set_tlnode = (node) => {
+	let offsets = [
+		[[1n, 0n], 0],
+		[[0n, 1n], 1],
+		[[-1n, 0n], 3],
+		[[0n, -1n], 2]
+	];
+
+	offsets.forEach(([v, i]) => {
+		path.set_cur(node.get_node(i));
+		path.add(v);
+	});
+}
+
+
+
+
+
+let update_view = (n_pos, n_zoom) => {
+	if(tree_dirty){
+		set_tlnode(cursor_path.get_root());
+		tree_dirty = false;
+	}
+
+
 	while(1 >= 4*n_zoom){
 		n_zoom *= 2;
 
-		n_depth++;
-		n_path = add(smul(2n, path), [1n, 1n]);
+		path.desc(3);
+		update_tree = true;
 	}
 
 	while(1 < n_zoom){
 		n_zoom /= 2;
 
-		let os = smul(unit/n_zoom/4, [!(path[0] & 1n), -!(path[1] & 1n)]);
+		let ind = path.cur_ind();
+		let os = smul(unit/n_zoom/4, [!(ind & 1), -!(ind & 2)]);
 		n_pos = add(n_pos, os);
 
-		n_depth--;
-		n_path = [path[0]>>1n, path[1]>>1n];
+		path.asc(0);
+		update_tree = true;
 	}
 
 	let v = smul(-4*n_zoom/unit, n_pos).map(v => Math.sign(v | 0));
 	if(v[0] || v[1]){
 		n_pos = add(n_pos, smul(unit/(n_zoom*2), v));
-		n_path = add(n_path, [BigInt(v[0]), BigInt(-v[1])]);
-	}
 
-	if(n_depth != c_depth || add(path, smul(-1n, n_path)).some(v => v != 0n)){
+		path.add([BigInt(v[0]), BigInt(-v[1])]);
 		update_tree = true;
-	}
-
-	if(tree_dirty && update_tree){
-		let path_arr = [
-			add(path, [0n, 0n]),
-			add(path, [1n, 0n]),
-			add(path, [0n, 1n]),
-			add(path, [1n, 1n]),
-		];
-
-		path_arr.map((v, i) => {
-			c_tree = replace_node(qtree, c_tree, v, c_depth, tree.get_node(i));
-		});
-
-		tree_dirty = false;
 	}
 
 	pos = n_pos;
 	zoom = n_zoom;
-	path = n_path;
-	c_depth = n_depth;
 
 	redraw = true;
 	if(update_tree){
-
-		tree = get_tlnode();
+		drawing=false;
+		cursor_path = QtreePath(qtree, get_tlnode());
 	}
-
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 /* event listeners */
 let to_cspace = ([x, y]) => [x - screen.width/2, screen.height/2 - y];
@@ -336,9 +339,7 @@ mouse_wheel(screen, ([x, y], change) => {
 
 	update_view(
 		add(smul(zoom/n_zoom, sub(pos, dp)), dp),
-		n_zoom,
-		path, 
-		c_depth
+		n_zoom
 	);
 });
 touch_pinch(screen, ([x, y], change) => {
@@ -347,18 +348,35 @@ touch_pinch(screen, ([x, y], change) => {
 
 	update_view(
 		add(smul(zoom/n_zoom, sub(pos, dp)), dp),
-		n_zoom,
-		path, 
-		c_depth
+		n_zoom
 	);
 });
 
-mouse_pan(screen, () => pos, (n_pos) => update_view(n_pos, zoom, path, c_depth));
-touch_pan(screen, () => pos, (n_pos) => update_view(n_pos, zoom, path, c_depth));
+mouse_pan(screen, () => pos, (n_pos) => update_view(n_pos, zoom));
+touch_pan(screen, () => pos, (n_pos) => update_view(n_pos, zoom));
 
+let drawing = false;
 pointer_drag(screen, (p) => {
-	let path = get_path(p, 8);
-	tree = replace_node(qtree, tree, ...path, qtree.color(0xff0000ff));
+	cursor_path.set_path(...get_path(p, 10));
+	c_os = [0, 0];
+	console.log(cursor_path.get_path(0));
+	drawing = true;
+},(p, k) => {
+	if(!drawing){
+		cursor_path.set_path(...get_path(p, 10));
+		c_os = [0, 0];
+		drawing = true;
+
+	}
+	cursor_path.set_cur(qtree.color(0xff0000ff));
+
+	let os = add(smul(zoom*2**10/unit, k), c_os);
+
+	let uos = os.map(v => v | 0);
+	c_os = sub(os, uos);
+
+	cursor_path.add(uos.map(BigInt));
+
 	tree_dirty = true;
 	update_tree = true;
 })
@@ -400,7 +418,8 @@ let loop = () => {
 	if(update_tree){
 		update_tree = false;
 		redraw = true;
-		set_qtree(tree);
+		console.log(cursor_path.get_path());
+		set_qtree(cursor_path.get_root());
 	}
 
 	if(redraw){
@@ -429,10 +448,15 @@ let loop = () => {
 
 /*init tree*/
 let qtree = LinearQtree();
-c_tree = qtree.color(0xffffffff);
+
+path = QtreePath(qtree, qtree.color(0xffffffff));
+path.set_path([0n, 0n], 1n);
+
 update_screen();
 rend.set_uniform("debug", "int", 0);
-set_qtree(tree = c_tree);
+
+cursor_path = QtreePath(qtree, get_tlnode());
+set_qtree(cursor_path.get_root());
 loop();
 	</script>
 </html>

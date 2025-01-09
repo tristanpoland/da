@@ -155,19 +155,24 @@ let touch_pinch = (el, cb) => {
 
 
 
-let pointer_drag = (el, cb) => {
+let pointer_drag = (el, st, cb) => {
+	let start;
 	let state, drag, poll;
 
 	drag = (ev) => {
-		cb([ev.x, ev.y]);
+		cb([ev.x, ev.y], [ev.x - start[0], ev.y - start[1]]);
+		start = [ev.x, ev.y];
 
 		if(ev.buttons != 1)
 			state = poll;
 	};
 
 	poll = (ev) => {
-		if(ev.buttons == 1)
+		if(ev.buttons == 1){
+			start = [ev.x, ev.y];
+			st(start);
 			state = drag;
+		}
 	};
 
 	state = poll;

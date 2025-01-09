@@ -189,16 +189,40 @@ let sub_tree = (node, depth = -1) => {
 
 
 let QtreePath = (qtree, node) => {
-	let path;
+	let path = [[node, null]];
 
 	let obj = {
 cur: () => path.at(-1)[0],
 set_cur: (val) => path.at(-1)[0] = val,
+cur_ind: () => path.at(-1)[1],
 desc: (ind) => path.push([obj.cur().get_node(ind), ind]),
-asc: () => path.pop(),
+get_path: () => path,
+get_path_vec: () => {
+	let vec = [0n, 0n];
+	let bit = 1n;
+	for(let i = path.length; --i;){
+		let ind = path[i][1];
+
+		let add = (a, b) => a.map((v, i) => v + b[i]);
+		vec = add(vec, [!!(ind & 1), !!(ind & 2)].map(v => bit * BigInt(v)));
+		bit <<= 1n;
+	}
+
+	return [vec, BigInt(path.length-1)];
+},
+asc: (hint = 0) => {
+	let [n1, ind] = path.pop();
+	if(path.length == 0){
+		path.push([qtree.color(0xffffffff), null]);
+		ind = hint;
+	}
+
+	obj.set_cur(set_node(qtree, obj.cur(), ind, n1));
+	return [n1, ind];
+},
 set_path: ([px, py], depth) => {
 	/* stack limit bites */
-	path = [[node, null]];
+	path = [[obj.get_root(), null]];
 	while(depth != 0){
 		depth--;
 		let ind = !!(px & (1n << depth)) + 2*!!(py & (1n << depth));
@@ -209,25 +233,18 @@ set_path: ([px, py], depth) => {
 },
 add: ([x, y]) => {
 	let stack = [];
-	let bit = 1n;
 
-	let carry = 0;
-	while(x >= bit || y >= bit || carry){
-		let io = !!(x & bit) + 2 * !!(y & bit);
-		let [n1, ind] = obj.asc();
+	while(x || y){
+		let [node, ind] = obj.asc((x < 0) + 2*(y < 0));
 
-		if(path.length == 0){
-			ind = (x < 0) + 2*(y < 0);
-			path.push([qtree.color(0xffffffff), null]);
-		}
+		let os = !!(x & 1n) + 2*!!(y & 1n);
+		stack.push(ind ^ os);
 
-		stack.push(ind ^ io ^ carry);
-		carry = (io & carry) | ((io ^ carry) & ind);
+		x >>= 1n;
+		y >>= 1n;
 
-		let cur = path.at(-1);
-		cur[0] = set_node(qtree, cur[0], ind, n1);
-
-		bit <<= 1n;
+		x += BigInt(!!(os & ind & 1));
+		y += BigInt(!!(os & ind & 2));
 	}
 
 	while(stack.length)
@@ -236,6 +253,8 @@ add: ([x, y]) => {
 	return obj.cur();
 },
 get_root: () => {
+	if(path == null || path.length == 0)
+		return null;
 	for(let i = path.length-1; i--;)
 		path[i][0] = set_node(qtree, path[i][0], path[i+1][1], path[i+1][0]);
 
