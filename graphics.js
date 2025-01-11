@@ -31,7 +31,7 @@ let gl_init_shader = (gl, vsource, fsource) => {
 }
 
 let FragmentRenderer = (gl, fsource) => {
-	shader_program = gl_init_shader(gl,
+	let shader_program = gl_init_shader(gl,
 `
 precision highp float;
 attribute vec2 aVertexPosition;
@@ -42,37 +42,35 @@ void main(){
 `, fsource);
 
 
-
-	let vert_pos = gl.getAttribLocation(shader_program, "aVertexPosition");
-
 	let pos_buf = gl.createBuffer();
-	gl.bindBuffer(gl.ARRAY_BUFFER, pos_buf);
+	let texture = {}
+	let textures = 0;
 
 	let positions = [1, 1, -1, 1, 1, -1, -1, -1];
 
-	gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
-	gl.bindBuffer(gl.ARRAY_BUFFER, pos_buf);
-
-	gl.vertexAttribPointer(
-		vert_pos,
-		2,
-		gl.FLOAT,
-		false,
-		0,
-		0
-	);
-
-	gl.enableVertexAttribArray(vert_pos);
-
-
-	let texture = gl.createTexture();
-
-	gl.useProgram(shader_program);
-	return {
+	let obj = {
 		draw: () => {
+			gl.useProgram(shader_program);
+
+			let vert_pos = gl.getAttribLocation(shader_program, "aVertexPosition");
+			gl.bindBuffer(gl.ARRAY_BUFFER, pos_buf);
+			gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+			gl.bindBuffer(gl.ARRAY_BUFFER, pos_buf);
+
+			gl.vertexAttribPointer(
+				vert_pos,
+				2,
+				gl.FLOAT,
+				false,
+				0,
+				0
+			);
+
+			gl.enableVertexAttribArray(vert_pos);
 			gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 		},
 		set_uniform: (name, type, value) => {
+			gl.useProgram(shader_program);
 			let uniform_loc = gl.getUniformLocation(shader_program, name);
 
 			let type_lut = {
@@ -88,7 +86,20 @@ void main(){
 			type_lut[type](uniform_loc, value);
 		},
 		set_texture: (name, w, h, arr) => {
-			gl.bindTexture(gl.TEXTURE_2D, texture);
+			gl.useProgram(shader_program);
+
+			let tex = texture[name] ?? (texture[name] = {
+				ind: ++textures,
+				buf: gl.createTexture()
+			});
+
+			tex.res = [w, h];
+
+			let loc = gl.getUniformLocation(shader_program, name)
+
+			obj.set_uniform(name, "int", tex.ind);
+			gl.activeTexture(gl.TEXTURE0 + tex.ind);
+			gl.bindTexture(gl.TEXTURE_2D, tex.buf);
 
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
@@ -97,7 +108,74 @@ void main(){
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
 
 			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, arr);
+		},
+		set_sub_texture: (name, [x, y], [w, h], arr) => {
+			gl.useProgram(shader_program);
+			gl.bindTexture(gl.TEXTURE_2D, texture[name].buf);
+			gl.texSubImage2D(gl.TEXTURE_2D, 0, x, y, w, h, gl.RGBA, gl.UNSIGNED_BYTE, arr);
+		},
+		set_texture_buf: (name, arr) => {
+			gl.useProgram(shader_program);
+			let num = arr.length/4;
+			let sr = (Math.log2(num)/2 + 1) | 0;
+			let [w, h] = [2**sr,(num/2**sr | 0) + !!(num % 2**sr)];
+
+			obj.set_texture(name, w, h, new Uint8Array(arr.buffer));
+			obj.set_uniform(name + "_lt", "int", sr);
+			obj.set_uniform(name + "_res", "vec2", [w, h]);
+		},
+		write_buf: (name, start, arr) => {
+			let [w, h] = texture[name].res;
+
+			let tl = [start % w, start / w | 0];
+			if(start % w != 0){
+				let cw = Math.min(w - tl[0], arr.length/4);
+				obj.set_sub_texture(name, tl, [cw, 1], arr);
+				tl = [0, tl[1] + 1];
+				arr = arr.subarray(cw * 4);
+			}
+
+
+			let ch = arr.length/4/w | 0;
+			if(ch)
+				obj.set_sub_texture(name, [tl[0], tl[1]], [w, ch], arr);
+
+			tl = [0, tl[1]+ch];
+			arr = arr.subarray(ch * w * 4);
+			let cw = arr.length/4;
+			if(cw)
+				obj.set_sub_texture(name, tl, [cw, 1], arr);
+		},
+		read_buf: (name, start, end) => {
+			let buf = new Uint8Array(end - start);
+			let [w, h] = texture[name].res;
+
+			let arr = buf;
+
+			let tl = [start % w, start / w | 0];
+			if(start % w != 0){
+				let cw = Math.min(w - tl[0], arr.length/4);
+				obj.read_pixels(name, tl, [cw, 1], arr);
+				tl = [0, tl[1] + 1];
+				arr = arr.subarray(cw * 4);
+			}
+
+
+			let ch = arr.length/4/w | 0;
+			if(ch)
+				obj.read_pixels(name, [tl[0], tl[1]], [w, ch], arr);
+
+			tl = [0, tl[1]+ch];
+			arr = arr.subarray(ch * w * 4);
+			let cw = arr.length/4;
+			if(cw)
+				obj.read_pixels(name, tl, [cw, 1], arr);
+
+			return buf;
 		}
+		
 	};
+
+	return obj;
 }
 

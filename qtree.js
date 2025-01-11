@@ -4,11 +4,38 @@ let hash_node = (node) => {
 		.reduce((a, b) => (a << 32n) + BigInt(b), 0n);
 }
 
-let LinearQtree = () => {
+let DynUint8 = (sz = 256*4) => {
+	let buffer = new Uint8Array(sz); //TODO may fail
+	let end = 0;
+
+	let obj = {
+get_buffer: () => buffer,
+get: (ind) => buffer[ind],
+set: (ind, val) => {
+	if(ind >= buffer.length){
+		let v = 1;
+		while(ind >= buffer.length * v) v *= 2;
+		let old = buffer;
+		buffer = new Uint8Array(buffer.length * v);
+		buffer.set(old);
+	}
+
+	return buffer[ind] = val;
+},
+push: (val) => obj.set(end++, val),
+get_end: () => end,
+clear: () => {
+	end = 0;
+}
+	}
+
+	return obj;
+}
+
+let LinearQtree = (buffer = DynUint8()) => {
 	let col_memo = new Map(); //??
 	let memo = new Map();
-	let buffer = new Uint8Array(256 * 4);
-	let data_end = 0;
+	//let buffer = new Uint8Array(256 * 4);
 
 	let obj = {
 node_at: (ind) => {
@@ -23,40 +50,37 @@ node_at: (ind) => {
 	return node;
 },
 
-forEach: (fn) => {
-	for(let i = 0; i*5 < data_end; i++)
-		fn(obj.node_at(i), i);
-},
-
 write_uint: (ind, num) => {
 	ind *= 4;
-	buffer[ind++] = (num >> 0) & 0xff;
-	buffer[ind++] = (num >> 8) & 0xff;
-	buffer[ind++] = (num >> 16) & 0xff;
-	buffer[ind++] = (num >> 24) & 0xff;
+	buffer.set(ind++, (num >> 0) & 0xff);
+	buffer.set(ind++, (num >> 8) & 0xff);
+	buffer.set(ind++, (num >> 16) & 0xff);
+	buffer.set(ind++, (num >> 24) & 0xff);
 },
-
+push_uint: (num) => {
+	buffer.push((num >> 0) & 0xff);
+	buffer.push((num >> 8) & 0xff);
+	buffer.push((num >> 16) & 0xff);
+	buffer.push((num >> 24) & 0xff);
+},
 read_uint: (ind) => {
 	let num = 0;
 	ind *= 4;
-	num += buffer[ind++] << 0;
-	num += buffer[ind++] << 8;
-	num += buffer[ind++] << 16;
-	num += buffer[ind++] << 24;
+	num += buffer.get(ind++) << 0;
+	num += buffer.get(ind++) << 8;
+	num += buffer.get(ind++) << 16;
+	num += buffer.get(ind++) << 24;
 	return num;
 },
 
 add_node: (t, ...nodes) => {
-	if(buffer.length - data_end < 5 * 4)
-		buffer = new Uint8Array([...buffer, ...Array(buffer.length).fill(0)]);
-
 	let vals = [t, ...nodes.map(v => v?.ind)];
-	let my_ind = data_end/20;
+	let my_ind = buffer.get_end()/20;
 
-	let ind = data_end / 4;
-	vals.map((v, i) => obj.write_uint(ind + i, v));
-	data_end += 20;
+	while(vals.length != 5)
+		vals.push(my_ind);
 
+	vals.map(obj.push_uint);
 	return obj.node_at(my_ind);
 },
 
@@ -67,28 +91,28 @@ color: (t) => {
 	let node = obj.add_node(t);
 	col_memo.set(t, node.ind);
 
-	for(let i = 0; i < 4; i++)
-		node.set_node(i, node);
-
-	memo.set(hash_node(node), node.ind);
+	let vals = Array(4).fill(buffer.get_end() / 20);
+	let hash = vals.reduce((a, b) => (a << 32n) + BigInt(b), 0n);
+	memo.set(hash, node.ind);
 	return node;
 },
 
 node: (...nodes) => {
+	let t = avg_color(nodes.map(v => v.get_tag()));
 	let vals = nodes.map(v => v.ind);
 	let hash = vals.reduce((a, b) => (a << 32n) + BigInt(b), 0n);
 	if(memo.has(hash))
 		return obj.node_at(memo.get(hash));
 
-	let t = avg_color(nodes.map(v => v.get_tag()));
 	let node = obj.add_node(t, ...nodes);
 	memo.set(hash, node.ind);
 	return node;
+
 },
 
 get_buffer: () => buffer,
 get_memo: () => memo,
-get_size: () => data_end/20
+get_size: () => buffer.get_end()/20
 	};
 
 	return obj;
@@ -151,7 +175,146 @@ let get_node = (node, [px, py], depth) => {
 	return node;
 }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+let GpuUint8 = (rend, name) => {
+	let w = gl.getParameter(gl.MAX_TEXTURE_SIZE)/4;
+	rend.set_texture_buf(name, new Uint8Array(w*w*4).fill(0));
+
+	/*let buf = DynUint8(w);*/
+	let end = 0;
+	
+	let arr = new Uint8Array(4);
+	arr_ind = 0;
+
+	let obj = {
+set: (ind, val) => {
+	/*if(ind >= end){
+		buf.set(ind - end, val);
+		return val;
+	}*/
+
+	arr[arr_ind++] = val;
+	if(arr_ind == 4){
+		arr_ind = 0;
+		rend.write_buf(name, ind/4 | 0, arr);
+	}
+
+	return val;
+},
+//push: (val) => buf.push(val),
+push: (val) => obj.set(end++, val),
+clear: () => end = 0,
+get_end: () => end
+/*
+flush: () => {
+	rend.write_buf(name, end/4, buf.get_buffer().subarray(0, buf.get_end()));
+	end += buf.get_end();
+	buf = DynUint8();
+},
+clear: () => {
+	buf.clear();
+	arr_ind = end = 0;
+},
+get_end: () => end + buf.get_end();
+*/
+	}
+
+	return obj;
+}
+
+
+
+
+
+let QtreeMirror = (q1, q2) => {
+	let seen = new Map();
+
+	let obj = {
+get_seen: () => seen,
+mirror: (node) => {
+	if(seen.has(node.ind))
+		return q2.node_at(seen.get(node.ind));
+
+	let nd = q2.add_node(node.get_tag());
+	seen.set(node.ind, nd.ind);
+	return nd;
+},
+node_at: (ind) => {
+	let nd = q1.node_at(ind);
+	let mnd = obj.mirror(nd);
+
+	let node = {
+		ind: nd.ind,
+		get_node: (i) => {
+			let n = nd.get_node(i);
+			if(!seen.has(n.ind)){
+				for(let i = 0; i < 4; i++)
+					mnd.set_node(i, obj.mirror(nd.get_node(i)));
+			}
+
+			return obj.node_at(n.ind);	
+		},
+		get_tag: nd.get_tag,
+		set_tag: (t) => (mnd.set_tag(t), nd.set_tag(t)),
+		set_node: (i, n) => {
+			nd.set_node(i, n);
+			for(let i = 0; i < 4; i++)
+				mnd.set_node(i, obj.mirror(nd.get_node(i)));
+		}
+	};
+
+	return node;
+},
+add_node: (t, ...nodes) => {
+	let nd = q1.add_node(t, ...nodes);
+
+	let n2 = q2.add_node(t, ...nodes.map(obj.mirror));
+	seen.set(nd.ind, n2.ind);
+
+	return obj.node_at(nd.ind);
+},
+node: (...nodes) => {
+	let nd = q1.node(...nodes);
+
+	if(!seen.has(nd.ind)){
+		let n2 = q2.add_node(nd.get_tag(), ...nodes.map(obj.mirror));
+		seen.set(nd.ind, n2.ind);
+	}
+
+	return obj.node_at(nd.ind);
+},
+color: (t) => {
+	let nd = q1.color(t);
+	obj.mirror(md);
+	return obj.node_at(nd.ind);
+}
+
+	};
+
+	return obj;
+}
+
+
 let sub_tree = (node, depth = -1) => {
+	//let new_tree = LinearQtree(GpuUint8(rend, "tex"));
 	let new_tree = LinearQtree();
 	let seen = new Map();
 
@@ -166,16 +329,17 @@ let sub_tree = (node, depth = -1) => {
 		if(depth == 0 || nodes.every(v => v.ind == node.ind))
 			return new_tree.color(node.get_tag());
 
-		let new_nd = new_tree.node(...nodes.map(v => sub_tree_(v, depth-1)));
+		let new_nd = new_tree.add_node(node.get_tag(), ...nodes.map(v => sub_tree_(v, depth-1)));
+
 		seen.set(node.ind, [depth, new_nd]);
 		return new_nd;
 	}
 
-	return [new_tree, sub_tree_(node, depth)];
+	let ret = [new_tree, sub_tree_(node, depth)];
+	//new_tree.get_buffer().flush();
+
+	return ret;
 }
-
-
-
 
 
 
@@ -196,20 +360,6 @@ cur: () => path.at(-1)[0],
 set_cur: (val) => path.at(-1)[0] = val,
 cur_ind: () => path.at(-1)[1],
 desc: (ind) => path.push([obj.cur().get_node(ind), ind]),
-get_path: () => path,
-get_path_vec: () => {
-	let vec = [0n, 0n];
-	let bit = 1n;
-	for(let i = path.length; --i;){
-		let ind = path[i][1];
-
-		let add = (a, b) => a.map((v, i) => v + b[i]);
-		vec = add(vec, [!!(ind & 1), !!(ind & 2)].map(v => bit * BigInt(v)));
-		bit <<= 1n;
-	}
-
-	return [vec, BigInt(path.length-1)];
-},
 asc: (hint = 0) => {
 	let [n1, ind] = path.pop();
 	if(path.length == 0){
@@ -259,11 +409,9 @@ get_root: () => {
 		path[i][0] = set_node(qtree, path[i][0], path[i+1][1], path[i+1][0]);
 
 	return path[0][0];
-}
-
+},
+get_tree: () => qtree
 	}
 
 	return obj;
 }
-
-
