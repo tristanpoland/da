@@ -303,7 +303,7 @@ node: (...nodes) => {
 },
 color: (t) => {
 	let nd = q1.color(t);
-	obj.mirror(md);
+	obj.mirror(nd);
 	return obj.node_at(nd.ind);
 }
 
