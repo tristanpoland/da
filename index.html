@@ -305,6 +305,7 @@ let set_tlnode = (node) => {
 
 let IdempotentTaskQueue = () => {
 	let tasks = [];
+	let skip = new Set();
 	let task_set = new Set();
 	let ind = 0;
 
@@ -316,6 +317,7 @@ add_task: (name, fn) => {
 		task_set.add(name);
 	}
 },
+skip: (name) => skip.add(name), //TODO this is gross, plz fix
 get_task: () => {
 	if(ind == tasks.length){
 		tasks = [];
@@ -326,6 +328,11 @@ get_task: () => {
 	let [name, fn] = tasks[ind];
 	delete tasks[ind++];
 	task_set.delete(name);
+
+	if(skip.has(name)){
+		skip.delete(name);
+		return obj.get_task();
+	}
 	return [name, fn];
 }
 	}
@@ -407,6 +414,7 @@ let update_view = () => {
 		break;
 	}
 
+	taskList.add_task("redraw", redraw);
 	if(update){
 		drawing = false;
 
@@ -417,14 +425,15 @@ let update_view = () => {
 			let node = mirror.node_at(get_tlnode().ind);
 			cursor_path = QtreePath(mirror, node);
 
-			queue = [[node, 0]];
+			queue = [node, 0];
 			seen = new Map();
 			set_qtree(node);
+
+			taskList.skip("redraw");
 		}
 
 	}
 
-	taskList.add_task("redraw", redraw);
 }
 
 
@@ -435,26 +444,38 @@ let loop = () => {
 	let time = () => performance.now() - start;
 	let task;
 
-	while(time() < 2 && (task = taskList.get_task()))
-		task[1]();
-
-
 	let max_depth = Math.min(Math.log2(unit) + 2 | 0, 16);
-	if(time() < 10 || queue.length){
-		while(time() < 10 && queue.length){
-			let [nd, depth] = queue.shift();
-			if((seen.has(nd.ind) && seen.get(nd.ind) <= depth) || depth >= max_depth)
+	//let seen = cursor_path.get_tree().get_seen(); //TODO use mirror's seen
+	let nodes = [];
+	if(queue.length){
+		while(time() < 5 && queue.length){
+			let nd = queue.shift();
+			let depth = queue.shift();
+
+			/*
+			let n2 = qtree.node_at(nd.ind);
+			for(let i = 0; i < 4; i++){
+				delete nodes[i];
+				nodes[i] = n2.get_node(i ^ depth & 3);
+			}*/
+
+			//if(nodes.every(v => seen.has(v.ind)) || depth >= max_depth)
+			if(seen.has(nd.ind) || depth >= max_depth)
 				continue;
 
 			seen.set(nd.ind, depth);
-
 			for(let i = 0; i < 4; i++)
-				queue.push([nd.get_node(i ^ depth & 3), depth + 1]);
+				queue.push(nd.get_node(i ^ depth & 3), depth + 1);
 
+			delete nd;
 		}
 
 		taskList.add_task("update_tree", update_tree);
 	}
+
+	while(time() < 10 && (task = taskList.get_task()))
+		task[1]();
+
 	requestAnimationFrame(loop);
 }
 
@@ -576,6 +597,7 @@ Keyboard(window, (key) => {
 
 
 /*init tree*/
+rend.set_active();
 let qtree = LinearQtree();
 
 path = QtreePath(qtree, qtree.color(0xffffffff));
@@ -584,7 +606,7 @@ path.set_path([0n, 0n], 1n);
 update_screen();
 rend.set_uniform("debug", "int", 0);
 
-let gpu_buf = GpuUint8(rend, "tex");
+let gpu_buf = rend.GpuUint8("tex");
 let gpu_t = LinearQtree(gpu_buf);
 
 {

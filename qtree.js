@@ -23,7 +23,9 @@ set: (ind, val) => {
 	return buffer[ind] = val;
 },
 push: (val) => obj.set(end++, val),
+pop: (val) => obj.get(--end),
 get_end: () => end,
+set_end: (ind) => end = ind,
 clear: () => {
 	end = 0;
 }
@@ -194,53 +196,6 @@ let get_node = (node, [px, py], depth) => {
 
 
 
-let GpuUint8 = (rend, name) => {
-	let w = gl.getParameter(gl.MAX_TEXTURE_SIZE)/4;
-	rend.set_texture_buf(name, new Uint8Array(w*w*4).fill(0));
-
-	/*let buf = DynUint8(w);*/
-	let end = 0;
-	
-	let arr = new Uint8Array(4);
-	arr_ind = 0;
-
-	let obj = {
-set: (ind, val) => {
-	/*if(ind >= end){
-		buf.set(ind - end, val);
-		return val;
-	}*/
-
-	arr[arr_ind++] = val;
-	if(arr_ind == 4){
-		arr_ind = 0;
-		rend.write_buf(name, ind/4 | 0, arr);
-	}
-
-	return val;
-},
-//push: (val) => buf.push(val),
-push: (val) => obj.set(end++, val),
-clear: () => end = 0,
-get_end: () => end
-/*
-flush: () => {
-	rend.write_buf(name, end/4, buf.get_buffer().subarray(0, buf.get_end()));
-	end += buf.get_end();
-	buf = DynUint8();
-},
-clear: () => {
-	buf.clear();
-	arr_ind = end = 0;
-},
-get_end: () => end + buf.get_end();
-*/
-	}
-
-	return obj;
-}
-
-
 
 
 
@@ -312,34 +267,6 @@ color: (t) => {
 	return obj;
 }
 
-
-let sub_tree = (node, depth = -1) => {
-	//let new_tree = LinearQtree(GpuUint8(rend, "tex"));
-	let new_tree = LinearQtree();
-	let seen = new Map();
-
-	let sub_tree_ = (node, depth) => {
-		if(seen.has(node.ind)){
-			let [de, nd] = seen.get(node.ind);
-			if(de >= depth)
-				return nd;
-		}
-
-		let nodes = Array(4).fill().map((v, i) => node.get_node(i));
-		if(depth == 0 || nodes.every(v => v.ind == node.ind))
-			return new_tree.color(node.get_tag());
-
-		let new_nd = new_tree.add_node(node.get_tag(), ...nodes.map(v => sub_tree_(v, depth-1)));
-
-		seen.set(node.ind, [depth, new_nd]);
-		return new_nd;
-	}
-
-	let ret = [new_tree, sub_tree_(node, depth)];
-	//new_tree.get_buffer().flush();
-
-	return ret;
-}
 
 
 
@@ -415,3 +342,209 @@ get_tree: () => qtree
 
 	return obj;
 }
+
+
+
+
+
+
+
+
+let index_heap = (buffer, is_lt) => {
+	let obj = {
+write_uint: (ind, num) => {
+	ind *= 4;
+	buffer.set(ind++, (num >> 0) & 0xff);
+	buffer.set(ind++, (num >> 8) & 0xff);
+	buffer.set(ind++, (num >> 16) & 0xff);
+	buffer.set(ind++, (num >> 24) & 0xff);
+},
+push_uint: (num) => {
+	buffer.push((num >> 0) & 0xff);
+	buffer.push((num >> 8) & 0xff);
+	buffer.push((num >> 16) & 0xff);
+	buffer.push((num >> 24) & 0xff);
+},
+pop_uint: () => {
+	let num = 0;
+	num += buffer.pop() << 24;
+	num += buffer.pop() << 16;
+	num += buffer.pop() << 8;
+	num += buffer.pop() << 0;
+	return num;
+},
+read_uint: (ind) => {
+	let num = 0;
+	ind *= 4;
+	num += buffer.get(ind++) << 0;
+	num += buffer.get(ind++) << 8;
+	num += buffer.get(ind++) << 16;
+	num += buffer.get(ind++) << 24;
+	return num;
+},
+get_buffer: () => buffer,
+insert: (ind) => {
+	let buf_pos = buffer.get_end() / 4;
+	obj.push_uint(ind);
+	obj.sift_down(buf_pos);
+},
+extract_min: () => {
+	let ret = obj.read_uint(0);
+	obj.write_uint(0, obj.pop_uint());
+	obj.sift_up(0)
+	return ret;
+},
+cas: (a, b) => {
+	let a_val = obj.read_uint(a);
+	let b_val = obj.read_uint(b);
+
+	if(is_lt(a_val, b_val))
+		return false;
+
+	obj.write_uint(b, a_val);
+	obj.write_uint(a, b_val);
+	return true;
+},
+sift_up: (ind) => {
+	let l_ind = (ind + 1) * 2 - 1
+	let r_ind = l_ind + 1;
+
+	if(l_ind >= buffer.get_end() / 4)
+		return;
+
+	let take = l_ind;
+	if(r_ind < buffer.get_end() / 4){
+		if(is_lt(obj.read_uint(r_ind), obj.read_uint(l_ind)))
+			take = r_ind;
+	}
+
+	if(obj.cas(ind, take))
+		obj.sift_up(take);
+},
+sift_down: (ind) => {
+	if(ind == 0)
+		return;
+
+	let p_ind = ((ind + 1) / 2 | 0) - 1;
+
+	if(obj.cas(p_ind, ind))
+		obj.sift_down(p_ind);
+},
+is_empty: () => buffer.get_end() == 0
+	};
+
+	return obj;
+} 
+
+
+
+
+let Arena = (buffer, alloc_size) => {
+	let heap = index_heap(DynUint8());
+
+	let obj = {
+alloc: () => {
+	if(heap.is_empty()){
+		let ind = buffer.get_end();
+		buffer.set_end(buffer.get_end() + alloc_size);
+		return ind;
+	}
+
+	let ind = heap.extract_min();
+	return ind;
+},
+free: (ind) => heap.insert(ind)
+	};
+
+	return obj;
+}
+
+
+
+
+
+
+let _24_tree = (buffer, is_lt, is_eq) => {
+	let arena = Arena(buffer, 8 * 4);
+	let root;
+
+	let obj = {
+write_uint: (ind, num) => {
+	ind *= 4;
+	buffer.set(ind++, (num >> 0) & 0xff);
+	buffer.set(ind++, (num >> 8) & 0xff);
+	buffer.set(ind++, (num >> 16) & 0xff);
+	buffer.set(ind++, (num >> 24) & 0xff);
+},
+push_uint: (num) => {
+	buffer.push((num >> 0) & 0xff);
+	buffer.push((num >> 8) & 0xff);
+	buffer.push((num >> 16) & 0xff);
+	buffer.push((num >> 24) & 0xff);
+},
+read_uint: (ind) => {
+	let num = 0;
+	ind *= 4;
+	num += buffer.get(ind++) << 0;
+	num += buffer.get(ind++) << 8;
+	num += buffer.get(ind++) << 16;
+	num += buffer.get(ind++) << 24;
+	return num;
+},
+node_at: (ind) => {
+	let node = {
+		ind,
+		size: () => obj.read_uint(ind),
+		set_size: (val) => obj.write_uint(ind, val),
+		get_key: (i) => obj.read_uint(ind + 1 + i),
+		set_key: (i, key) => obj.write_uint(ind + 1 + i, key),
+		get_node: (i) => obj.read_uint(ind + 4 + i),
+		set_node: (i, node) => obj.write_uint(ind + 1 + i, node.ind),
+	};
+
+	return node;
+},
+add_node: (size) => {
+	let node = node_at(arena.alloc());
+	node.set_size(size);
+	return node;
+},
+search: (node, key) => {
+	if(node.ind == 0)
+		return null;
+
+	let cur_key;
+	for(let i = 0; i < root.get_size() - 1; i++){
+		cur_key = node.get_key(i);
+		if(is_lt(key, cur_key)){
+			if(is_eq(key, cur_key))
+				return cur_key;
+			break;
+		}
+	}
+
+	let next_node = cur_key;
+	if(is_lt(cur_key, key))
+		next_node = cur_key + 1;
+
+	return obj.search(node.get_node(next_node), key);
+},
+insert: (node, key) => {
+
+}
+	};
+
+	root = obj.node_at(arena.alloc());
+
+	return obj;
+};
+
+
+
+
+
+
+
+
+
+
