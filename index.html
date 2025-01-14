@@ -445,7 +445,7 @@ let loop = () => {
 
 	let frame_time = start - frame_start;
 	if(frame_time < 10 * avg_frame_time)
-		avg_frame_time = (9*frame_time + frame_time) / 10;
+		avg_frame_time = Math.max((9*frame_time + frame_time) / 10, 1); //firefox gets this set to zero somehow...
 	frame_start = start;
 
 	let time = () => performance.now() - start;
