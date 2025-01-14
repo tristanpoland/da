@@ -438,17 +438,27 @@ let update_view = () => {
 
 
 
-
+let frame_start = performance.now();
+let avg_frame_time = 16;
 let loop = () => {
 	let start = performance.now();
+
+	let frame_time = start - frame_start;
+	if(frame_time < 10 * avg_frame_time)
+		avg_frame_time = (9*frame_time + frame_time) / 10;
+	frame_start = start;
+
 	let time = () => performance.now() - start;
 	let task;
+
+	while(time() < avg_frame_time * 0.8 && (task = taskList.get_task()))
+		task[1]();
 
 	let max_depth = Math.min(Math.log2(unit) + 2 | 0, 16);
 	//let seen = cursor_path.get_tree().get_seen(); //TODO use mirror's seen
 	let nodes = [];
 	if(queue.length){
-		while(time() < 5 && queue.length){
+		while(time() < avg_frame_time * 0.5 && queue.length){
 			let nd = queue.shift();
 			let depth = queue.shift();
 
@@ -472,9 +482,6 @@ let loop = () => {
 
 		taskList.add_task("update_tree", update_tree);
 	}
-
-	while(time() < 10 && (task = taskList.get_task()))
-		task[1]();
 
 	requestAnimationFrame(loop);
 }
@@ -590,12 +597,6 @@ Keyboard(window, (key) => {
 
 
 
-
-
-
-
-
-
 /*init tree*/
 rend.set_active();
 let qtree = LinearQtree();
@@ -606,7 +607,7 @@ path.set_path([0n, 0n], 1n);
 update_screen();
 rend.set_uniform("debug", "int", 0);
 
-let gpu_buf = rend.GpuUint8("tex");
+let gpu_buf = Uint32Arr(rend.GpuUint8("tex"));
 let gpu_t = LinearQtree(gpu_buf);
 
 {
