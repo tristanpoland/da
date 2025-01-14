@@ -126,8 +126,6 @@ node: (...nodes) => {
 
 	memo = ab.insert(memo, node.ind, (ind) => {
 		buffer.set_end(buffer.get_end() - 5);
-		if(node.ind == ind)
-			console.log("huh??", ind);
 		node = obj.node_at(ind);
 	});
 
