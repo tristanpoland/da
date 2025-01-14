@@ -105,13 +105,16 @@ add_node: (t, ...nodes) => {
 color: (t) => {
 	let node = obj.add_node(t);
 
+	let free = false;
 	col_memo = col_ab.insert(col_memo, node.ind, (ind) => {
 		buffer.set_end(buffer.get_end() - 5);
+		free = true;
 		node = obj.node_at(ind);
 	});
 
 	memo = ab.insert(memo, node.ind, (ind) => {
-		buffer.set_end(buffer.get_end() - 5);
+		if(!free)
+			buffer.set_end(buffer.get_end() - 5);
 		node = obj.node_at(ind);
 	});
 
@@ -123,8 +126,11 @@ node: (...nodes) => {
 
 	memo = ab.insert(memo, node.ind, (ind) => {
 		buffer.set_end(buffer.get_end() - 5);
-		node = obj.node_at(ind)
+		if(node.ind == ind)
+			console.log("huh??", ind);
+		node = obj.node_at(ind);
 	});
+
 
 	return node;
 },
@@ -573,10 +579,9 @@ insert_: (node, key, fn) => {
 	if(node.ind == 0)
 		return [key, obj.node_at(0), obj.node_at(0)];
 
-	let cur_key;
 	let i = 0;
 	for(; i < node.get_size() - 1; i++){
-		cur_key = node.get_key(i);
+		let cur_key = node.get_key(i);
 		if(is_eq(key, cur_key)){
 			fn(cur_key);
 			return [node];
@@ -587,7 +592,6 @@ insert_: (node, key, fn) => {
 	}
 
 	let next_node = i;
-
 	let next = obj.insert_(node.get_node(next_node), key, fn);
 	if(next.length == 1){
 		node.set_node(next_node, next[0]);
