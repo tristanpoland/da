@@ -105,12 +105,12 @@ add_node: (t, ...nodes) => {
 color: (t) => {
 	let node = obj.add_node(t);
 
-	col_ab.insert(col_memo, node.ind, (ind) => {
+	col_memo = col_ab.insert(col_memo, node.ind, (ind) => {
 		buffer.set_end(buffer.get_end() - 5);
 		node = obj.node_at(ind);
 	});
 
-	ab.insert(memo, node.ind, (ind) => {
+	memo = ab.insert(memo, node.ind, (ind) => {
 		buffer.set_end(buffer.get_end() - 5);
 		node = obj.node_at(ind);
 	});
@@ -121,7 +121,7 @@ node: (...nodes) => {
 	let t = avg_color(nodes.map(v => v.get_tag()));
 	let node = obj.add_node(t, ...nodes);
 
-	ab.insert(memo, node.ind, (ind) => {
+	memo = ab.insert(memo, node.ind, (ind) => {
 		buffer.set_end(buffer.get_end() - 5);
 		node = obj.node_at(ind)
 	});
