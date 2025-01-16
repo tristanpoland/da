@@ -1,9 +1,4 @@
 
-let hash_node = (node) => {
-	return Array(4).fill().map((v, i) => node.get_node(i).ind)
-		.reduce((a, b) => (a << 32n) + BigInt(b), 0n);
-}
-
 let DynUint8 = (sz = 256*4) => {
 	let buffer = new Uint8Array(sz); //TODO may fail
 	let end = 0;
@@ -138,17 +133,20 @@ get_memo: () => [ab, col_ab, memo, col_memo],
 get_size: () => buffer.get_end()/5
 	};
 
+	let node_to_uint = (node) => {
+		return Array(4).fill().map((v, i) => node.get_node(i).ind)
+			.reduce((a, b) => (a << 32n) + BigInt(b), 0n);
+	}
 
 	ab = _24_tree(Uint32Arr(DynUint8()), 
-		(a, b) => hash_node(obj.node_at(a)) < hash_node(obj.node_at(b)),
-		(a, b) => hash_node(obj.node_at(a)) == hash_node(obj.node_at(b))
+		(a, b) => node_to_uint(obj.node_at(a)) < node_to_uint(obj.node_at(b)),
+		(a, b) => node_to_uint(obj.node_at(a)) == node_to_uint(obj.node_at(b))
 	);
 
 	col_ab = _24_tree(Uint32Arr(DynUint8()), 
 		(a, b) => obj.node_at(a).get_tag() < obj.node_at(b).get_tag(),
 		(a, b) => obj.node_at(a).get_tag() == obj.node_at(b).get_tag()
 	);
-
 	memo = ab.node_at(0);
 	col_memo = col_ab.node_at(0);
 
@@ -165,9 +163,6 @@ get_size: () => buffer.get_end()/5
 
 
 
-
-let log = (fn) => (...x) => (console.log(...x), fn(...x));
-let id = (x) => x;
 
 let avg_color = (cols) => {
 	let add = (a, b) => a.map((v, i) => v + b[i]);
@@ -187,45 +182,6 @@ let set_node = (qtree, node, ind, val) => {
 	nodes[ind] = val; 
 	return qtree.node(...nodes);
 }
-
-let replace_node = (qtree, node, [x, y], depth, val) => {
-	let stack = [];
-
-	while(depth){
-		depth--;
-		let ind = !!(x & (1n << depth)) + 2*!!(y & (1n << depth));
-		stack.push([node, ind]);
-		node = node.get_node(ind); 
-	}
-
-	
-	if(node == val){
-		return stack[0][0];
-	}
-
-	while(stack.length){
-		let ind;
-		[node, ind] = stack.pop();
-		val = set_node(qtree, node, ind, val)
-	}
-
-	return val;
-}
-
-let get_node = (node, [px, py], depth) => {
-	/* stack limit bites */
-	while(depth != 0){
-		depth--;
-		let ind = !!(px & (1n << depth)) + 2 * !!(py & (1n << depth));
-		node = node.get_node(ind);
-	}
-
-	return node;
-}
-
-
-
-
 
 
 
@@ -258,6 +214,19 @@ mirror: (node) => {
 	seen.set(node.ind, nd.ind);
 	return nd;
 },
+full_mirror: (node) => {
+	let nodes = Array(4).fill().map((v, i) => node.get_node(i));
+	let mnd = obj.mirror(node);
+
+	nodes.forEach((v, i) => {
+		if(!seen.has(v.ind))
+			mnd.set_node(i, obj.full_mirror(v));
+		else
+			mnd.set_node(i, obj.mirror(v));
+	});
+
+	return mnd;
+},
 node_at: (ind) => {
 	let nd = q1.node_at(ind);
 	let mnd = obj.mirror(nd);
@@ -269,6 +238,8 @@ node_at: (ind) => {
 			if(!seen.has(n.ind)){
 				for(let i = 0; i < 4; i++)
 					mnd.set_node(i, obj.mirror(nd.get_node(i)));
+			}else{
+				mnd.set_node(i, obj.mirror(n));
 			}
 
 			return obj.node_at(n.ind);	
@@ -295,10 +266,11 @@ add_node: (t, ...nodes) => {
 node: (...nodes) => {
 	let nd = q1.node(...nodes);
 
-	if(!seen.has(nd.ind)){
-		let n2 = q2.add_node(nd.get_tag(), ...nodes.map(obj.mirror));
-		seen.set(nd.ind, n2.ind);
-	}
+	//if(!seen.has(nd.ind)){
+		obj.full_mirror(nd)
+		//let n2 = q2.add_node(nd.get_tag(), ...nodes.map(obj.mirror));
+		//seen.set(nd.ind, n2.ind);
+	//}
 
 	return obj.node_at(nd.ind);
 },

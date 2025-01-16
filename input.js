@@ -2,8 +2,8 @@
 let Pointer = (el, init, ev = init, del = init) => {
 	let to_point = (v) => ({
 		id: v.pointerId,
-		x: v.clientX,
-		y: v.clientY,
+		x: v.offsetX,
+		y: v.offsetY,
 		force: v.pressure,
 		time: v.timeStamp,
 		buttons: v.buttons

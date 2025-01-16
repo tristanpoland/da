@@ -2,33 +2,63 @@
 <html>
 	<head>
 		<title>da</title>
-<style>
-* {
-	touch-action: none;
-}
-
-body {
-	width: 100vw;
-	height: 100vh;
-	margin: 0;
-	padding: 0;
-	border: 0;
-	overflow: hidden;
-}
-
-canvas {
-	width: 100%;
-	height: 100%;
-}
-</style>
 	</head>
-	<body>
-		<canvas id="screen"></canvas>
-	</body>
+	<body></body>
 	<script src="input.js"></script>
 	<script src="graphics.js"></script>
 	<script src="qtree.js"></script>
+	<script src="component.js"></script>
 	<script>
+
+let brush_color = 0xff000000;
+let brush_depth = 10;
+
+document.body = un_cps(Body(
+	Overlap(
+		//canvas
+		Block(
+			all(
+				el("canvas"),
+				Attr("id", "screen")
+			)
+		),
+
+		//top bar
+		Rect("100%", "4em")(
+			all(
+				Border(row(
+					all(
+						el("input"),
+						Attr("type", "color"),
+						Event("input", (e) => {
+							let rgb = e.srcElement.value.slice(1);
+							brush_color = +("0xff" + rgb.match(/.{2}/g).toReversed().join(""))
+						})
+					),
+					all(
+						el("input"),
+						Attr("type", "number"),
+						Attr("min", "1"),
+						Attr("max", "16"),
+						Event("input", (e) => {
+							drawing = false;
+							brush_depth = +e.srcElement.value;
+						})
+					)
+				)),
+				Style({
+					"background": "white"
+				})
+			)
+		)
+	)
+))();
+
+
+
+
+
+
 let screen = document.getElementById("screen");
 let gl = screen.getContext("webgl");
 
@@ -228,7 +258,7 @@ let get_path = ([x, y], depth) => {
 	let de = 0n;
 
 	for(let i = 0; i < depth; i++){
-		quad = [p[0] > orig[0], p[1] < orig[1]];
+		let quad = [p[0] > orig[0], p[1] < orig[1]];
 
 		pa = [
 			BigInt(quad[0]) + 2n*pa[0], 
@@ -378,15 +408,13 @@ let update_tree = () => {
 
 
 
-let update_view = () => {
+let update_view = (update = false) => {
 	if(tree_dirty){
 		let tl_node = cursor_path.get_root();
 		set_tlnode(tl_node);
 		tree_dirty = false;
 	}
 
-
-	let update = false;
 	while(1 >= 4*zoom){
 		zoom *= 2;
 		path.desc(3);
@@ -425,7 +453,7 @@ let update_view = () => {
 			let node = mirror.node_at(get_tlnode().ind);
 			cursor_path = QtreePath(mirror, node);
 
-			queue = [node, 0];
+			queue = [node.ind, 0];
 			seen = new Map();
 			set_qtree(node);
 
@@ -455,27 +483,19 @@ let loop = () => {
 		task[1]();
 
 	let max_depth = Math.min(Math.log2(unit) + 2 | 0, 16);
-	//let seen = cursor_path.get_tree().get_seen(); //TODO use mirror's seen
+	//let seen = cursor_path.get_tree().get_seen(); //TODO use mirror's seen?
 	let nodes = [];
 	if(queue.length){
 		while(time() < avg_frame_time * 0.5 && queue.length){
-			let nd = queue.shift();
+			let nd = cursor_path.get_tree().node_at(queue.shift());
 			let depth = queue.shift();
 
-			/*
-			let n2 = qtree.node_at(nd.ind);
-			for(let i = 0; i < 4; i++){
-				delete nodes[i];
-				nodes[i] = n2.get_node(i ^ depth & 3);
-			}*/
-
-			//if(nodes.every(v => seen.has(v.ind)) || depth >= max_depth)
 			if(seen.has(nd.ind) || depth >= max_depth)
 				continue;
 
 			seen.set(nd.ind, depth);
 			for(let i = 0; i < 4; i++)
-				queue.push(nd.get_node(i ^ depth & 3), depth + 1);
+				queue.push(nd.get_node(i ^ depth & 3).ind, depth + 1);
 
 			delete nd;
 		}
@@ -537,7 +557,7 @@ touch_pan(screen, () => pos, (n_pos) => {
 let c_os;
 pointer_drag(screen, (p) => {
 	taskList.add_task_("draw", () => {
-		cursor_path.set_path(...get_path(p, 10));
+		cursor_path.set_path(...get_path(p, brush_depth));
 		c_os = [0, 0];
 		drawing = true;
 		taskList.add_task("update_tree", update_tree);
@@ -545,16 +565,17 @@ pointer_drag(screen, (p) => {
 },(p, k) => {
 	taskList.add_task_("draw", () => {
 		if(!drawing){
-			cursor_path.set_path(...get_path(p, 10));
+			cursor_path.set_path(...get_path(p, brush_depth));
 			c_os = [0, 0];
 			drawing = true;
 
 		}
 
-		let os = add(smul(zoom*2**10/unit, k), c_os);
+		let os = add(smul(zoom*2**brush_depth/unit, k), c_os);
 		let uos = os.map(v => v | 0);
 
-		cursor_path.set_cur(qtree.color(0xff000000 + 2**24 * Math.random()));
+		cursor_path.set_cur(qtree.color(brush_color));
+		//cursor_path.set_cur(qtree.color(0xff000000 + Math.random() * 2**24));
 		cursor_path.add(uos.map(BigInt));
 
 		c_os = sub(os, uos);
