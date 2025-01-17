@@ -91,11 +91,11 @@ let undo_queue = [
 
 let redo_queue = [];
 
-let get_state = () => [path.copy(), [...pos], zoom, qtree.node_at(brush.get_surface()[1].ind)];
+let get_state = () => [path.copy(), [...pos], zoom, qtree.node_at(brush.get_surface()[1].ind), global_depth];
 
 let load_state = (state) => {
 	let surface;
-	[path, pos, zoom, surface] = state;
+	[path, pos, zoom, surface, global_depth] = state;
 	gpu_buf.clear();
 	let gpu_t = LinearQtree(gpu_buf);
 	let stree = QtreeMirror(qtree, gpu_t);
