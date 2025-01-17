@@ -2,231 +2,15 @@
 <html>
 	<head>
 		<title>da</title>
+		<link rel="icon" href="favicon.svg" sizes="any" type="image/svg+xml">
 	</head>
 	<body></body>
-	<script src="input.js"></script>
-	<script src="graphics.js"></script>
-	<script src="qtree.js"></script>
-	<script src="component.js"></script>
+	<script src="src/input.js"></script>
+	<script src="src/graphics.js"></script>
+	<script src="src/qtree.js"></script>
+	<script src="src/component.js"></script>
+	<script src="src/brush.js"></script>
 	<script>
-
-let brush_color = 0xff000000;
-let brush_depth = 10;
-
-document.body = un_cps(Body(
-	Overlap(
-		//canvas
-		Block(
-			all(
-				el("canvas"),
-				Attr("id", "screen")
-			)
-		),
-
-		//top bar
-		Rect("100%", "4em")(
-			all(
-				Border(row(
-					all(
-						el("input"),
-						Attr("type", "color"),
-						Event("input", (e) => {
-							let rgb = e.srcElement.value.slice(1);
-							brush_color = +("0xff" + rgb.match(/.{2}/g).toReversed().join(""))
-						})
-					),
-					all(
-						el("input"),
-						Attr("type", "number"),
-						Attr("min", "1"),
-						Attr("max", "16"),
-						Event("input", (e) => {
-							drawing = false;
-							brush_depth = +e.srcElement.value;
-						})
-					)
-				)),
-				Style({
-					"background": "white"
-				})
-			)
-		)
-	)
-))();
-
-
-
-
-
-
-let screen = document.getElementById("screen");
-let gl = screen.getContext("webgl");
-
-let rend = FragmentRenderer(gl,
-`
-precision highp float;
-precision highp int;
-
-uniform vec2 res;
-
-uniform sampler2D tex;
-uniform vec2 tex_res;
-uniform int tex_lt;
-
-
-uniform vec2 center;
-uniform ivec4 node;
-uniform int depth;
-uniform float unit;
-
-uniform int debug;
-
-uniform mat4 transform;
-
-/* 32bit int emulation */
-ivec2 moddiv(int a, int b){
-	int div = a / b, mod = a - div * b;
-	return ivec2(mod, div);
-}
-
-ivec4 carry_prop(ivec4 a){
-	ivec2 v;
-
-	v = moddiv(a.r, 256);
-	a.r = v.x;
-	v = moddiv(a.g + v.y, 256);
-	a.g = v.x;
-	v = moddiv(a.b + v.y, 256);
-	a.b = v.x;
-	v = moddiv(a.a + v.y, 256);
-	a.a = v.x;
-
-	return a;
-}
-
-ivec4 rshift8(ivec4 a){return ivec4(a.g, a.b, a.a, 0);}
-
-ivec4 rshift07(ivec4 a, int b){
-	int v = int(float(a.r) * pow(0.5, float(b)));
-	a = carry_prop(rshift8(a)*int(pow(2.0,float(8-b))));
-	a.r = a.r + v;
-	return a;
-}
-
-ivec4 rshift(ivec4 a, int b){
-	ivec2 mul = moddiv(b, 7);
-	for(int i = 0; i < 8; i++){
-		if(mul.y - i == 0)
-			break;
-		a = rshift07(a, 7);
-	}
-
-	return rshift07(a, mul.x);
-}
-
-ivec4 lshift(ivec4 a, int b){
-	ivec2 mul = moddiv(b, 7);
-	for(int i = 0; i < 8; i++){
-		if(mul.y - i == 0)
-			break;
-		a = carry_prop(a*int(pow(2.0, 7.0)));
-	}
-
-	return carry_prop(a*int(pow(2.0, float(mul.x))));
-}
-
-
-
-vec4 col_at(ivec4 ind){
-	ivec4 v2 = rshift(ind, tex_lt);
-	ivec4 v1 = ind - lshift(v2, tex_lt);
-
-	vec2 tc = (vec2(v1.r + 256*v1.g, v2.r + 256*v2.g) + vec2(0.5)) / tex_res;
-	return texture2D(tex, tc);
-}
-
-ivec4 vec4tonum(vec4 val){
-
-
-/*
-	//UNSIGNED_SHORT_4_4_4_4
-	ivec4 val = ivec4(15.0*val + 0.5)
-	return ivec4(val.r + 16*val.g, val.b + 16*val.a, 0, 0);
-*/
-
-
-/*
-	UNSIGNED_SHORT_5_6_5
-	ivec4 val = ivec4(31.0*val.r + 0.5, 63.0*val.g + 0.5, 31.0*val.b + 0.5, 0.0);
-	return carry_prop(ivec4(val.r + 32*val.g, 8*val.g, 0, 0));
-*/
-
-	//RGBA
-	return ivec4(255.0*val + 0.5);
-}
-ivec4 num_at(ivec4 ind){
-/*
-	//UNSIGNED_SHORT_4_4_4_4
-	ind = lshift(ind, 1);
-	return vec4tonum(col_at(ind + ivec4(0, 0, 0, 0)) + 
-		lshift(vec4tonum(col_at(ind + ivec4(1, 0, 0, 0)), 16);
-*/
-
-	//RBGA
-	return vec4tonum(col_at(ind));
-}
-
-
-
-void main(){
-	vec2 pos = (transform * vec4(gl_FragCoord.xy, 0.0, 1.0)).xy;
-	vec2 orig = center;
-
-	ivec4 ind = node;
-	float width = unit;
-
-	if(debug == 1 && gl_FragCoord.x < center.x){
-		vec2 p = gl_FragCoord.xy/res;
-		p.x = p.x * 2.0;
-		p.y = 1.0 - p.y;
-
-		gl_FragColor = texture2D(tex, p);
-		gl_FragColor.a = 1.0;
-		return;
-	}
-/*
-	else{
-		vec2 p = gl_FragCoord.xy;
-
-		if(p.y > tex_res.x * tex_res.y)
-			discard;
-		ivec4 ind = carry_prop(ivec4(p.y, 0, 0, 0));
-
-		gl_FragColor = col_at(ind);
-		gl_FragColor.a = 1.0;
-		return;
-	}
-	*/
-
-
-	for(int i = 0; i < 16; i++){
-		if(i >= depth)
-			break;
-
-		vec2 quad = vec2(pos.x > orig.x, pos.y < orig.y);
-		ind = ind * 5;
-		ind.r = ind.r + 1 + int(quad.x + 2.0*quad.y);
-		ind = num_at(carry_prop(ind));
-
-		width = width / 2.0;
-		orig = vec2(quad.x-0.5, 0.5-quad.y)*width + orig;
-	}
-
-	gl_FragColor = col_at(carry_prop(ind*5));
-	gl_FragColor.a = 1.0;
-}
-`
-);
 
 let add = (a, b) => a.map((v, i) => v + b[i]);
 let smul = (a, b) => b.map(v => v * a);
@@ -234,102 +18,6 @@ let sub = (a, b) => add(a, smul(-1, b));
 let dot = (a, b) => a.map((v, i) => v * b[i]).reduce((a, b) => a + b);
 let length = (a) => dot(a, a)**0.5;
 let norm = (a) => smul(1/length(a), a);
-
-
-
-/*TODO remove globals*/
-let unit;
-let pos = [0, 0];
-let zoom = 1;
-let path;
-
-let tree_dirty = false;
-let drawing = false;
-let cursor_path;
-
-
-/* tree helper functions */
-let get_path = ([x, y], depth) => {
-	let p = sub([x, screen.height - y], pos);
-	let orig = [screen.width/2, screen.height/2];
-	let width = unit/zoom;
-
-	let pa = [0n, 0n]
-	let de = 0n;
-
-	for(let i = 0; i < depth; i++){
-		let quad = [p[0] > orig[0], p[1] < orig[1]];
-
-		pa = [
-			BigInt(quad[0]) + 2n*pa[0], 
-			BigInt(quad[1]) + 2n*pa[1]
-		];
-
-		de++;
-		width /= 2;
-		orig = add(smul(width, [quad[0]-0.5, 0.5-quad[1]]), orig);
-	}
-
-	return [pa, de];
-}
-
-let set_qtree = (node) => {
-	let depth = Math.min(Math.log2(unit) + 2 | 0, 16);
-	let mt = cursor_path.get_tree();
-	let nd = mt.mirror(node);
-
-	rend.set_uniform("depth", "int", depth);
-	rend.set_uniform("node", "ivec4", [
-		(nd.ind >> 0) & 0xff,
-		(nd.ind >> 8) & 0xff,
-		(nd.ind >> 16) & 0xff,
-		(nd.ind >> 24) & 0xff
-	]);
-}
-
-let get_tlnode = () => {
-	let offsets = [
-		[[1n, 0n], 0],
-		[[0n, 1n], 1],
-		[[-1n, 0n], 3],
-		[[0n, -1n], 2]
-	];
-
-	let nodes = Array(4).fill();
-	offsets.forEach(([v, i]) => {
-		nodes[i] = path.cur();
-		path.add(v);
-	});
-
-	return qtree.node(...nodes);
-}
-
-
-let set_tlnode = (node) => {
-	let offsets = [
-		[[1n, 0n], 0],
-		[[0n, 1n], 1],
-		[[-1n, 0n], 3],
-		[[0n, -1n], 2]
-	];
-
-	offsets.forEach(([v, i]) => {
-		path.set_cur(node.get_node(i));
-		path.add(v);
-	});
-}
-
-
-
-
-
-
-
-
-
-
-
-
 
 /*task queue*/
 
@@ -370,7 +58,128 @@ get_task: () => {
 	return obj;
 }
 
+
+
+
+
+/*TODO remove globals*/
+
+//frame task stuff
 let taskList = IdempotentTaskQueue();
+let queue = [];
+let seen = new Map();
+
+
+//rendering stuff
+let rend, gpu_buf;
+let unit;
+let pos = [0, 0];
+let zoom = 1;
+let res;
+
+let qtree, path;
+
+let brush = PixelBrush();
+let global_depth = 0;
+let drawing = false;
+
+
+// undo stuff
+let undo_queue = [
+//[path, pos, zoom, surface]
+];
+
+let redo_queue = [];
+
+let get_state = () => [path.copy(), [...pos], zoom, qtree.node_at(brush.get_surface()[1].ind)];
+
+let load_state = (state) => {
+	let surface;
+	[path, pos, zoom, surface] = state;
+	gpu_buf.clear();
+	let gpu_t = LinearQtree(gpu_buf);
+	let stree = QtreeMirror(qtree, gpu_t);
+
+	brush.set_surface(stree, stree.node_at(surface.ind));
+	set_qtree(stree.mirror(surface));
+
+	queue = [surface.ind, 0];
+	seen = new Map();
+};
+
+let undo = () => {
+	if(undo_queue.length){
+		let state = undo_queue.pop();
+		redo_queue.push(get_state());
+		load_state(state);
+	}
+}
+
+let redo = () => {
+	if(redo_queue.length){
+		let state = redo_queue.pop();
+		undo_queue.push(get_state());
+		load_state(state);
+	}
+}
+
+/* tree helper functions */
+
+let set_qtree = (node) => {
+	let depth = Math.min(Math.log2(unit) + 2 | 0, 16);
+	
+	rend.set_uniform("depth", "int", depth);
+	rend.set_uniform("node", "ivec4", [
+		(node.ind >> 0) & 0xff,
+		(node.ind >> 8) & 0xff,
+		(node.ind >> 16) & 0xff,
+		(node.ind >> 24) & 0xff
+	]);
+}
+
+let get_tlnode = () => {
+	let offsets = [
+		[[1n, 0n], 0],
+		[[0n, 1n], 1],
+		[[-1n, 0n], 3],
+		[[0n, -1n], 2]
+	];
+
+	let nodes = Array(4).fill();
+	offsets.forEach(([v, i]) => {
+		nodes[i] = path.cur();
+		path.add(v);
+	});
+
+	//TODO don't actually initialize unaligned nodes
+	return qtree.node(...nodes);
+}
+
+
+let set_tlnode = (node) => {
+	let offsets = [
+		[[1n, 0n], 0],
+		[[0n, 1n], 1],
+		[[-1n, 0n], 3],
+		[[0n, -1n], 2]
+	];
+
+	offsets.forEach(([v, i]) => {
+		path.set_cur(node.get_node(i));
+		path.add(v);
+	});
+}
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -394,13 +203,12 @@ let redraw = () => {
 	rend.draw();
 };
 
-let queue = [];
-let seen = new Map();
-
 let update_tree = () => {
 	drawing = false;
-	let node = cursor_path.get_root();
-	set_qtree(cursor_path.get_root());
+
+	let [stree, node] = brush.get_surface();
+	set_qtree(stree.mirror(node));
+
 	taskList.add_task("redraw", redraw);
 };
 
@@ -409,16 +217,18 @@ let update_tree = () => {
 
 
 let update_view = (update = false) => {
-	if(tree_dirty){
-		let tl_node = cursor_path.get_root();
-		set_tlnode(tl_node);
-		tree_dirty = false;
+	if(brush.dirty()){
+		let [stree, node] = brush.get_surface();
+		set_tlnode(node);
+		brush.clean();
 	}
 
 	while(1 >= 4*zoom){
 		zoom *= 2;
 		path.desc(3);
 		update = true;
+
+		global_depth++;
 	}
 
 	while(1 < zoom){
@@ -428,6 +238,8 @@ let update_view = (update = false) => {
 		pos = add(pos, os);
 		path.asc(0);
 		update = true;
+
+		global_depth--;
 	}
 
 	while(1){
@@ -444,67 +256,67 @@ let update_view = (update = false) => {
 
 	taskList.add_task("redraw", redraw);
 	if(update){
+		gpu_buf.clear();
+		let gpu_t = LinearQtree(gpu_buf);
+		let stree = QtreeMirror(qtree, gpu_t);
+		let node = stree.node_at(get_tlnode().ind);
+
+		brush.set_surface(stree, node);
+		set_qtree(stree.mirror(node));
+
+		queue = [node.ind, 0];
+		seen = new Map();
+
 		drawing = false;
-
-		{
-			gpu_buf.clear();
-			let gpu_t = LinearQtree(gpu_buf);
-			let mirror = QtreeMirror(qtree, gpu_t);
-			let node = mirror.node_at(get_tlnode().ind);
-			cursor_path = QtreePath(mirror, node);
-
-			queue = [node.ind, 0];
-			seen = new Map();
-			set_qtree(node);
-
-			taskList.skip("redraw");
-		}
-
+		taskList.skip("redraw");
 	}
 
 }
 
 
 
-let frame_start = performance.now();
-let avg_frame_time = 16;
-let loop = () => {
-	let start = performance.now();
+let loop = (() => {
+	let frame_start = performance.now(); //I love closures
+	let avg_frame_time = 16;
 
-	let frame_time = start - frame_start;
-	if(frame_time < 10 * avg_frame_time)
-		avg_frame_time = Math.max((9*frame_time + frame_time) / 10, 1); //firefox gets this set to zero somehow...
-	frame_start = start;
+	return () => {
+		let start = performance.now();
+		let time = () => performance.now() - start;
 
-	let time = () => performance.now() - start;
-	let task;
+		let frame_time = start - frame_start;
+		if(frame_time < 10 * avg_frame_time)
+			avg_frame_time = Math.max((9*frame_time + frame_time) / 10, 1); //firefox gets this set to zero somehow...
+		frame_start = start;
 
-	while(time() < avg_frame_time * 0.8 && (task = taskList.get_task()))
-		task[1]();
 
-	let max_depth = Math.min(Math.log2(unit) + 2 | 0, 16);
-	//let seen = cursor_path.get_tree().get_seen(); //TODO use mirror's seen?
-	let nodes = [];
-	if(queue.length){
-		while(time() < avg_frame_time * 0.5 && queue.length){
-			let nd = cursor_path.get_tree().node_at(queue.shift());
-			let depth = queue.shift();
+		let task;
+		while(time() < avg_frame_time * 0.8 && (task = taskList.get_task()))
+			task[1]();
 
-			if(seen.has(nd.ind) || depth >= max_depth)
-				continue;
+		let max_depth = Math.min(Math.log2(unit) + 2 | 0, 16);
+		//let seen = cursor_path.get_tree().get_seen(); //TODO use mirror's seen?
+		let nodes = [];
+		if(queue.length){
+			while(time() < avg_frame_time * 0.5 && queue.length){
+				let nd = brush.get_tree().node_at(queue.shift());
+				let depth = queue.shift();
 
-			seen.set(nd.ind, depth);
-			for(let i = 0; i < 4; i++)
-				queue.push(nd.get_node(i ^ depth & 3).ind, depth + 1);
+				if(seen.has(nd.ind) || depth >= max_depth)
+					continue;
 
-			delete nd;
+				seen.set(nd.ind, depth);
+				for(let i = 0; i < 4; i++)
+					queue.push(nd.get_node(i ^ depth & 3).ind, depth + 1);
+
+				delete nd;
+			}
+
+			taskList.add_task("update_tree", update_tree);
 		}
 
-		taskList.add_task("update_tree", update_tree);
+		requestAnimationFrame(loop);
 	}
-
-	requestAnimationFrame(loop);
-}
+})();
 
 
 
@@ -523,120 +335,164 @@ let loop = () => {
 
 
 
-/* event listeners */
-let to_cspace = ([x, y]) => [x - screen.width/2, screen.height/2 - y];
-mouse_wheel(screen, ([x, y], change) => {
-	let dp = to_cspace([x, y]);
-	let n_zoom = zoom + 0.05*zoom*change;
-	pos = add(smul(zoom/n_zoom, sub(pos, dp)), dp),
-	zoom = n_zoom;
-
-	taskList.add_task("update_view", update_view);
-});
-touch_pinch(screen, ([x, y], change) => {
-	let dp = to_cspace([x, y]);
-	let n_zoom = zoom + 0.05*zoom*change;
-
-	zoom = n_zoom;
-	pos = add(smul(zoom/n_zoom, sub(pos, dp)), dp);
-	taskList.add_task("update_view", update_view);
-});
-
-mouse_pan(screen, () => pos, (n_pos) => {
-	pos = n_pos
-	taskList.add_task("update_view", update_view);
-});
-touch_pan(screen, () => pos, (n_pos) => {
-	pos = n_pos;
-	taskList.add_task("update_view", update_view);
-});
 
 
+(async () => {
+	document.body = un_cps(Body(
+		Overlap(
+			//canvas
+			Block(
+				all(
+					el("canvas"),
+					Attr("id", "screen")
+				)
+			),
+
+			//top bar
+			Rect("100%", "4em")(
+				all(
+					Border(row(
+						all(
+							el("input"),
+							Attr("type", "color"),
+							Event("input", (e) => {
+								let rgb = e.srcElement.value.slice(1);
+								brush.set_color(+("0xff" + rgb.match(/.{2}/g).toReversed().join("")));
+							})
+						),
+						all(
+							el("input"),
+							Attr("type", "number"),
+							Event("input", (e) => {
+								drawing = false;
+								brush.set_scale(+e.srcElement.value);
+							})
+						)
+					)),
+					Style({
+						"background": "white"
+					})
+				)
+			)
+		)
+	))();
 
 
-let c_os;
-pointer_drag(screen, (p) => {
-	taskList.add_task_("draw", () => {
-		cursor_path.set_path(...get_path(p, brush_depth));
-		c_os = [0, 0];
-		drawing = true;
-		taskList.add_task("update_tree", update_tree);
+	let screen = document.getElementById("screen");
+	let gl = screen.getContext("webgl");
+
+	/* event listeners */
+	let to_cspace = ([x, y]) => [x - res[0]*0.5, res[1]*0.5 - y];
+	mouse_wheel(screen, ([x, y], change) => {
+		let dp = to_cspace([x, y]);
+		let n_zoom = zoom + 0.05*zoom*change;
+		pos = add(smul(zoom/n_zoom, sub(pos, dp)), dp),
+		zoom = n_zoom;
+
+		taskList.add_task("update_view", update_view);
 	});
-},(p, k) => {
-	taskList.add_task_("draw", () => {
-		if(!drawing){
-			cursor_path.set_path(...get_path(p, brush_depth));
-			c_os = [0, 0];
+	touch_pinch(screen, (p, change) => {
+		let dp = to_cspace(p);
+		let n_zoom = zoom + 0.05*zoom*change;
+
+		zoom = n_zoom;
+		taskList.add_task("update_view", update_view);
+	});
+
+	mouse_pan(screen, () => pos, (n_pos) => {
+		pos = n_pos
+		taskList.add_task("update_view", update_view);
+	});
+	touch_pan(screen, () => pos, (n_pos) => {
+		pos = n_pos;
+		taskList.add_task("update_view", update_view);
+	});
+
+
+
+
+
+	let to_uvspace = (p) => smul(zoom/unit, sub(to_cspace(p), pos));
+	pointer_drag(screen, (p) => {
+		undo_queue.push(get_state());
+		redo_queue = [];
+
+		taskList.add_task_("draw", () => {
+			brush.set_pos(to_uvspace(p), global_depth);
 			drawing = true;
+			taskList.add_task("update_tree", update_tree);
+		});
+	},(p, k) => {
+		taskList.add_task_("draw", () => {
+			if(!drawing)
+				brush.set_pos(to_uvspace(p), global_depth);
 
+			brush.update_pos(smul(zoom/unit, [k[0], -k[1]]));
+			taskList.add_task("update_tree", update_tree);
+		});
+	});
+
+	let update_screen = () => {
+		let n_dim = [screen.clientWidth, screen.clientHeight];
+
+		[screen.width, screen.height] = n_dim;
+		res = n_dim;
+		gl.viewport(0, 0, ...n_dim);
+		unit = 2*Math.max(...n_dim);
+		rend.set_uniform("center", "vec2", smul(0.5, n_dim));
+		rend.set_uniform("res", "vec2", n_dim);
+
+		taskList.add_task("redraw", redraw);
+	};
+
+	addEventListener("resize", update_screen);
+
+
+	let keys = {};
+	Keyboard(window, (key) => {
+		keys[key] = true;
+		if(keys[70]){
+			rend.set_uniform("debug", "int", 1);
+			taskList.add_task("redraw", redraw);
 		}
 
-		let os = add(smul(zoom*2**brush_depth/unit, k), c_os);
-		let uos = os.map(v => v | 0);
+		if(keys[90] && keys[17]){
+			undo();
+		}
 
-		cursor_path.set_cur(qtree.color(brush_color));
-		//cursor_path.set_cur(qtree.color(0xff000000 + Math.random() * 2**24));
-		cursor_path.add(uos.map(BigInt));
-
-		c_os = sub(os, uos);
-		tree_dirty = true;
-
-		taskList.add_task("update_tree", update_tree);
+		if(keys[89] && keys[17]){
+			redo();	
+		}
+	}, (key) => {
+		keys[key] = false;
+		if(key == 70){
+			rend.set_uniform("debug", "int", 0);
+			taskList.add_task("redraw", redraw);
+		}
 	});
-})
-
-//screen.addEventListener("contextmenu", (e) => e.preventDefault());
-
-let update_screen = () => {
-	let n_dim = [screen.clientWidth, screen.clientHeight];
-
-	[screen.width, screen.height] = n_dim;
-	gl.viewport(0, 0, ...n_dim);
-	unit = 2*Math.max(...n_dim);
-	rend.set_uniform("center", "vec2", smul(0.5, n_dim));
-	rend.set_uniform("res", "vec2", n_dim);
-
-	taskList.add_task("redraw", redraw);
-}
-
-addEventListener("resize", update_screen);
 
 
-Keyboard(window, (key) => {
-	if(key == 70){
-		rend.set_uniform("debug", "int", 1);
-		taskList.add_task("redraw", redraw);
-	}
-}, (key) => {
-	if(key == 70){
-		rend.set_uniform("debug", "int", 0);
-		taskList.add_task("redraw", redraw);
-	}
-});
+	let shader = await fetch("src/tree_shader.glsl").then(v => v.text());
+	rend = FragmentRenderer(gl, shader);
 
+	/*init tree*/
+	rend.set_active();
+	qtree = LinearQtree();
 
+	path = QtreePath(qtree, qtree.color(0xffffffff));
+	path.set_path([0n, 0n], 1n);
 
+	update_screen();
+	rend.set_uniform("debug", "int", 0);
 
-
-/*init tree*/
-rend.set_active();
-let qtree = LinearQtree();
-
-path = QtreePath(qtree, qtree.color(0xffffffff));
-path.set_path([0n, 0n], 1n);
-
-update_screen();
-rend.set_uniform("debug", "int", 0);
-
-let gpu_buf = Uint32Arr(rend.GpuUint8("tex"));
-let gpu_t = LinearQtree(gpu_buf);
-
-{
+	gpu_buf = Uint32Arr(rend.GpuUint8("tex"));
+	let gpu_t = LinearQtree(gpu_buf);
 	let mirror = QtreeMirror(qtree, gpu_t);
-	cursor_path = QtreePath(mirror, mirror.node_at(get_tlnode().ind));
-}
+	let node = mirror.node_at(get_tlnode().ind);
 
-set_qtree(cursor_path.get_root());
-loop();
+	brush.set_surface(mirror, node);
+	set_qtree(mirror.mirror(node));
+	loop();
+})()
 	</script>
 </html>
