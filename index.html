@@ -10,6 +10,7 @@
 	<script src="src/qtree.js"></script>
 	<script src="src/component.js"></script>
 	<script src="src/brush.js"></script>
+	<script src="src/networking.js"></script>
 	<script>
 
 let add = (a, b) => a.map((v, i) => v + b[i]);
@@ -18,6 +19,7 @@ let sub = (a, b) => add(a, smul(-1, b));
 let dot = (a, b) => a.map((v, i) => v * b[i]).reduce((a, b) => a + b);
 let length = (a) => dot(a, a)**0.5;
 let norm = (a) => smul(1/length(a), a);
+let clamp = (v, a, b) => Math.min(Math.max(v, a), b);
 
 /*task queue*/
 
@@ -79,7 +81,8 @@ let res;
 
 let qtree, path;
 
-let brush = PixelBrush();
+
+let brush = SdfBrush();
 let global_depth = 0;
 let drawing = false;
 
@@ -424,10 +427,12 @@ let loop = (() => {
 		});
 	},(p, k) => {
 		taskList.add_task_("draw", () => {
-			if(!drawing)
+			if(!drawing){
 				brush.set_pos(to_uvspace(p), global_depth);
+				drawing = true;
+			}
 
-			brush.update_pos(smul(zoom/unit, [k[0], -k[1]]));
+			brush.update_pos(to_uvspace(p), smul(zoom/unit, [k[0], k[1]]));
 			taskList.add_task("update_tree", update_tree);
 		});
 	});

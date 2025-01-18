@@ -183,6 +183,54 @@ let set_node = (qtree, node, ind, val) => {
 	return qtree.node(...nodes);
 }
 
+let render_sdf = (qtree, node, depth, sdf, fill) => {
+	let render_ = (node, orig, unit, depth) => {
+		unit = unit/2;
+
+		let dist = sdf(orig);
+		let target = 2**0.5 * unit;
+
+		if(dist < -target || depth <= 0)
+			return fill;
+
+		if(dist < target){
+			let nodes = Array(4).fill().map((v, i) => node.get_node(i));
+			return qtree.node(
+				...nodes
+					.map((v, i) => render_(v, add(smul(unit, [!!(i & 1) - 0.5, 0.5 - !!(i & 2)]), orig), unit, depth-1))
+			);
+		}
+
+		return node;
+	};
+
+	return render_(node, [0, 0], 1, depth);
+}
+
+//slower
+let render_sdf_fn = (qtree, node, depth, sdf, color) => {
+	let render_ = (node, orig, unit, depth) => {
+		unit = unit/2;
+
+		let dist = sdf(orig);
+		let target = 2**0.5 * unit;
+	
+		if(depth <= 0)
+			return color(orig, node);
+
+		if(dist < target){
+			let nodes = Array(4).fill().map((v, i) => node.get_node(i));
+			return qtree.node(
+				...nodes
+					.map((v, i) => render_(v, add(smul(unit, [!!(i & 1) - 0.5, 0.5 - !!(i & 2)]), orig), unit, depth-1))
+			);
+		}
+
+		return node;
+	};
+
+	return render_(node, [0, 0], 1, depth);
+}
 
 
 
@@ -201,6 +249,7 @@ let set_node = (qtree, node, ind, val) => {
 
 
 
+//TODO make this less fucky
 let QtreeMirror = (q1, q2) => {
 	let seen = new Map();
 
@@ -265,13 +314,7 @@ add_node: (t, ...nodes) => {
 },
 node: (...nodes) => {
 	let nd = q1.node(...nodes);
-
-	//if(!seen.has(nd.ind)){
-		obj.full_mirror(nd)
-		//let n2 = q2.add_node(nd.get_tag(), ...nodes.map(obj.mirror));
-		//seen.set(nd.ind, n2.ind);
-	//}
-
+	obj.full_mirror(nd)
 	return obj.node_at(nd.ind);
 },
 color: (t) => {

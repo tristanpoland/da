@@ -21,7 +21,7 @@ set_pos: (p, dep) => {
 	set_path(cursor_path, 1, p, depth);
 	c_os = [0, 0];
 },
-update_pos: (k) => {
+update_pos: (p, k) => {
 	let os = add(smul(2**depth, k), c_os);
 	let uos = os.map(v => v | 0);
 
@@ -37,11 +37,55 @@ update_pos: (k) => {
 }
 
 
-let PolyLineBrush = () => {
-	/*TODO*/
+let line_sdf = (p, a, b) => {
+	let pa = sub(p, a), ba = sub(b, a);
+
+	if(ba.every(v => v == 0))
+		return length(pa);
+
+	let h = clamp(dot(pa, ba)/dot(ba,ba), 0.0, 1.0);
+	return length(add(pa, smul(-h, ba)));
+};
+
+let SdfBrush = (sdf = (p1, p2, width) => (p) => line_sdf(p, p1, p2) - width) => {
+	let c_pos = [0, 0];
+	let qtree;
+	let node;
+
+	let brush_color = 0xff000000;
+	let brush_depth = 10;
+	let brush_width = 0.001;
+	let tree_dirty = false;
+	let depth;
 
 	let obj = {
+get_tree: () => qtree,
+set_color: (col) => brush_color = col,
+set_scale: (val) => brush_depth = val,
+set_width: (val) => brush_width = val,
+get_surface: () => [qtree, node],
+dirty: () => tree_dirty, //TODO find a better way?
+clean: () => tree_dirty = false,
+set_surface: (qt, nd) => {
+	qtree = qt;
+	node = nd;
+},
+set_pos: (p, dep) => {
+	depth = dep;
+	c_pos = p;
+},
+update_pos: (p, k) => {
+	node = render_sdf(
+		qtree,
+		node,
+		brush_depth-depth, 
+		sdf(p, c_pos, brush_width * 2**depth),
+		qtree.color(brush_color)
+	);
 
+	c_pos = p;
+	tree_dirty = true;
+}
 	};
 
 	return obj;
