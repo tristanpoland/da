@@ -1,6 +1,6 @@
 
 
-let PixelBrush = () => {
+let PixelBrush = (rel) => {
 	let brush_color = 0xff000000;
 	let c_os = [0, 0];
 	let cursor_path;
@@ -16,13 +16,13 @@ get_surface: () => [cursor_path.get_tree(), cursor_path.get_root()],
 dirty: () => tree_dirty, //TODO find a better way?
 clean: () => tree_dirty = false,
 set_surface: (qtree, node) => cursor_path = QtreePath(qtree, node),
-set_pos: (p, dep) => {
-	depth = brush_depth - dep;
-	set_path(cursor_path, 1, p, depth);
+set_pos: (p, dep, zm) => {
+	depth = dep;
+	set_path(cursor_path, 1, p, rel ? brush_depth : brush_depth-depth);
 	c_os = [0, 0];
 },
 update_pos: (p, k) => {
-	let os = add(smul(2**depth, k), c_os);
+	let os = add(smul(rel ? 2**brush_depth : 2**(brush_depth-depth), k), c_os);
 	let uos = os.map(v => v | 0);
 
 	cursor_path.set_cur(qtree.color(brush_color));
@@ -47,7 +47,7 @@ let line_sdf = (p, a, b) => {
 	return length(add(pa, smul(-h, ba)));
 };
 
-let SdfBrush = (sdf = (p1, p2, width) => (p) => line_sdf(p, p1, p2) - width) => {
+let SdfBrush = (rel, sdf = (p1, p2, width) => (p) => line_sdf(p, p1, p2) - width) => {
 	let c_pos = [0, 0];
 	let qtree;
 	let node;
@@ -56,7 +56,9 @@ let SdfBrush = (sdf = (p1, p2, width) => (p) => line_sdf(p, p1, p2) - width) => 
 	let brush_depth = 10;
 	let brush_width = 0.001;
 	let tree_dirty = false;
+
 	let depth;
+	let zoom;
 
 	let obj = {
 get_tree: () => qtree,
@@ -70,16 +72,17 @@ set_surface: (qt, nd) => {
 	qtree = qt;
 	node = nd;
 },
-set_pos: (p, dep) => {
+set_pos: (p, dep, zm) => {
 	depth = dep;
+	zoom = zm
 	c_pos = p;
 },
 update_pos: (p, k) => {
 	node = render_sdf(
 		qtree,
 		node,
-		brush_depth-depth, 
-		sdf(p, c_pos, brush_width * 2**depth),
+		rel ? brush_depth : brush_depth-depth, 
+		sdf(p, c_pos, rel ? brush_width * zoom : brush_width * 2**depth),
 		qtree.color(brush_color)
 	);
 
