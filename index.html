@@ -30,6 +30,7 @@ let IdempotentTaskQueue = () => {
 	let ind = 0;
 
 	let obj = {
+get_queue: () => tasks,
 add_task_:  (name, fn) => tasks.push([name, fn]),
 add_task: (name, fn) => {
 	if(!task_set.has(name)){
@@ -109,23 +110,6 @@ let load_state = (state) => {
 	queue = [surface.ind, 0];
 	seen = new Map();
 };
-
-let undo = () => {
-	if(undo_queue.length){
-		let state = undo_queue.pop();
-		redo_queue.push(get_state());
-		load_state(state);
-	}
-}
-
-let redo = () => {
-	if(redo_queue.length){
-		let state = redo_queue.pop();
-		undo_queue.push(get_state());
-		load_state(state);
-	}
-}
-
 /* tree helper functions */
 
 let set_qtree = (node) => {
@@ -140,7 +124,7 @@ let set_qtree = (node) => {
 	]);
 }
 
-let get_tlnode = () => {
+let get_tlnode = (path) => {
 	let offsets = [
 		[[1n, 0n], 0],
 		[[0n, 1n], 1],
@@ -155,11 +139,11 @@ let get_tlnode = () => {
 	});
 
 	//TODO don't actually initialize unaligned nodes
-	return qtree.node(...nodes);
+	return path.get_tree().node(...nodes);
 }
 
 
-let set_tlnode = (node) => {
+let set_tlnode = (path, node) => {
 	let offsets = [
 		[[1n, 0n], 0],
 		[[0n, 1n], 1],
@@ -222,7 +206,7 @@ let update_tree = () => {
 let update_view = (update = false) => {
 	if(brush.dirty()){
 		let [stree, node] = brush.get_surface();
-		set_tlnode(node);
+		set_tlnode(path, qtree.node_at(node.ind));
 		brush.clean();
 	}
 
@@ -262,7 +246,7 @@ let update_view = (update = false) => {
 		gpu_buf.clear();
 		let gpu_t = LinearQtree(gpu_buf);
 		let stree = QtreeMirror(qtree, gpu_t);
-		let node = stree.node_at(get_tlnode().ind);
+		let node = stree.node_at(get_tlnode(path).ind);
 
 		brush.set_surface(stree, node);
 		set_qtree(stree.mirror(node));
@@ -274,6 +258,22 @@ let update_view = (update = false) => {
 		taskList.skip("redraw");
 	}
 
+}
+
+let undo = () => {
+	if(undo_queue.length){
+		let state = undo_queue.pop();
+		redo_queue.push(get_state());
+		load_state(state);
+	}
+}
+
+let redo = () => {
+	if(redo_queue.length){
+		let state = redo_queue.pop();
+		undo_queue.push(get_state());
+		load_state(state);
+	}
 }
 
 
@@ -351,6 +351,14 @@ let loop = (() => {
 			brush = new_brush();
 			drawing=false;
 			brush.set_surface(...surface);
+
+			console.log("hi 2?");
+			let el = document.getElementById("main_color");
+
+			let event = new window.Event('input', {
+				bubbles: true,
+			});
+			el.dispatchEvent(event);
 		})
 	)
 
@@ -371,6 +379,7 @@ let loop = (() => {
 						all(
 							el("input"),
 							Attr("type", "color"),
+							Attr("id", "main_color"),
 							Event("input", (e) => {
 								let rgb = e.srcElement.value.slice(1);
 								brush.set_color(+("0xff" + rgb.match(/.{2}/g).toReversed().join("")));
@@ -387,7 +396,13 @@ let loop = (() => {
 						brush_btn("Rel Pixel", () => PixelBrush(true)),
 						brush_btn("Pixel", PixelBrush),
 						brush_btn("Rel Polyline", () => SdfBrush(true)),
-						brush_btn("Polyline", () => SdfBrush())
+						brush_btn("Polyline", () => SdfBrush()),
+						brush_btn("EyeDropper", () => EyeDropper(true, (nd) => {
+							let to_rgb = (tag) => "#" + ((tag & 0xffffff) | 0x1000000).toString(16).slice(1).match(/[0-9a-zA-Z]{2}/g).toReversed().join("");
+
+							let el = document.getElementById("main_color");
+							el.value = to_rgb(nd.get_tag());
+						}))
 					)),
 					Style({
 						"background": "white"
@@ -432,15 +447,17 @@ let loop = (() => {
 
 
 
-	let to_uvspace = (p) => smul(zoom/unit, sub(to_cspace(p), pos));
+	let to_uvspace = (p) => {
+		let k = smul(zoom/unit, sub(to_cspace(p), pos));
+		return [k[0], -k[1]];
+	};
 	pointer_drag(screen, (p) => {
 		undo_queue.push(get_state());
 		redo_queue = [];
 
 		taskList.add_task_("draw", () => {
-			brush.set_pos(to_uvspace(p), global_depth);
+			brush.set_pos(to_uvspace(p), global_depth, zoom);
 			drawing = true;
-			taskList.add_task("update_tree", update_tree);
 		});
 	},(p, k) => {
 		taskList.add_task_("draw", () => {
@@ -478,13 +495,11 @@ let loop = (() => {
 			taskList.add_task("redraw", redraw);
 		}
 
-		if(keys[90] && keys[17]){
-			undo();
-		}
+		if(keys[90] && keys[17])
+			taskList.add_task("undo", undo);
 
-		if(keys[89] && keys[17]){
-			redo();	
-		}
+		if(keys[89] && keys[17])
+			taskList.add_task("redo", redo);
 	}, (key) => {
 		keys[key] = false;
 		if(key == 70){
@@ -510,7 +525,7 @@ let loop = (() => {
 	gpu_buf = Uint32Arr(rend.GpuUint8("tex"));
 	let gpu_t = LinearQtree(gpu_buf);
 	let mirror = QtreeMirror(qtree, gpu_t);
-	let node = mirror.node_at(get_tlnode().ind);
+	let node = mirror.node_at(get_tlnode(path).ind);
 
 	brush.set_surface(mirror, node);
 	set_qtree(mirror.mirror(node));
