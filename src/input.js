@@ -10,11 +10,14 @@ let Pointer = (el, init, ev = init, del = init) => {
 	});
 
 	el.addEventListener("pointerdown", (e) => init(to_point(e)));
-	el.addEventListener("pointermove", (e) =>
+	el.addEventListener("pointermove", (e) => {
 		e.getCoalescedEvents /* only works in https */
 			? e.getCoalescedEvents().forEach(v => ev(to_point(v)))
-			: ev(to_point(e)));
+			: ev(to_point(e))
+	});
 	el.addEventListener("pointerup", (e) => del(to_point(e)));
+	el.addEventListener("pointerleave", (e) => del(to_point(e)));
+	el.addEventListener("pointerout", (e) => del(to_point(e)));
 }
 
 let Keyboard = (el, down, up) => {
@@ -158,15 +161,16 @@ let touch_pinch = (el, cb) => { //TODO figure out how to fix paning while pinchi
 
 
 
-
 let pointer_drag = (el, st, cb) => {
 	let start;
 	let state, drag, poll;
 	let pointers = {};
 
 	drag = (ev) => {
-		cb([ev.x, ev.y], [ev.x - start[0], ev.y - start[1]]);
-		start = [ev.x, ev.y];
+		if(length(sub(start, [ev.x, ev.y])) > 2){
+			cb([ev.x, ev.y], [ev.x - start[0], ev.y - start[1]]);
+			start = [ev.x, ev.y];
+		}
 	};
 
 	poll = (ev) => {};

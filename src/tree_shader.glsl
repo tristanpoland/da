@@ -157,5 +157,4 @@ void main(){
 	}
 
 	gl_FragColor = col_at(carry_prop(ind*5));
-	gl_FragColor.a = 1.0;
 }

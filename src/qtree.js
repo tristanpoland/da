@@ -96,7 +96,6 @@ add_node: (t, ...nodes) => {
 	vals.map(buffer.push);
 	return obj.node_at(my_ind);
 },
-
 color: (t) => {
 	let node = obj.add_node(t);
 
@@ -133,14 +132,25 @@ get_memo: () => [ab, col_ab, memo, col_memo],
 get_size: () => buffer.get_end()/5
 	};
 
-	let node_to_uint = (node) => {
-		return Array(4).fill().map((v, i) => node.get_node(i).ind)
-			.reduce((a, b) => (a << 32n) + BigInt(b), 0n);
+	let node_eq = (a, b) => {
+		for(let i = 0; i < 4; i++)
+			if(obj.node_at(a).get_node(i).ind != obj.node_at(b).get_node(i).ind)
+				return false;
+
+		return true;
+	}
+
+	let node_cmp = (a, b) => {
+		for(let i = 0; i < 4; i++)
+			if(obj.node_at(a).get_node(i).ind < obj.node_at(b).get_node(i).ind)
+				return true;
+
+		return false;
 	}
 
 	ab = _24_tree(Uint32Arr(DynUint8()), 
-		(a, b) => node_to_uint(obj.node_at(a)) < node_to_uint(obj.node_at(b)),
-		(a, b) => node_to_uint(obj.node_at(a)) == node_to_uint(obj.node_at(b))
+		node_cmp,
+		node_eq
 	);
 
 	col_ab = _24_tree(Uint32Arr(DynUint8()), 
@@ -190,14 +200,14 @@ let render_sdf = (qtree, node, depth, sdf, fill) => {
 		let dist = sdf(orig);
 		let target = 2**0.5 * unit;
 
-		if(dist < -target || depth <= 0)
+		if(fill.ind == node.ind || dist < -target || depth <= 0)
 			return fill;
 
 		if(dist < target){
 			let nodes = Array(4).fill().map((v, i) => node.get_node(i));
 			return qtree.node(
 				...nodes
-					.map((v, i) => render_(v, add(smul(unit, [!!(i & 1) - 0.5, 0.5 - !!(i & 2)]), orig), unit, depth-1))
+					.map((v, i) => render_(v, add(smul(unit, [!!(i & 1) - 0.5, !!(i & 2) - 0.5]), orig), unit, depth-1))
 			);
 		}
 
@@ -335,6 +345,53 @@ color: (t) => {
 
 
 
+/*
+let LazyQtree = (qtree) => {
+	let lazy = new Map();
+	
+	let obj = {
+node_at: (ind) => {
+	if(lazy.has(ind))
+		return lazy.get(ind);
+		
+	return qtree.node_at(ind);
+},
+add_node: qtree.add_node,
+node: qtree.node,
+color: qtree.color,
+lazy_node: (col_guess, fn) => {
+	let my_ind = qtree.get_size();
+
+	//TODO breaks uniqueness ...
+	let node = {
+		ind: my_ind,
+		get_node: (i) => {
+			let nd = fn(obj);
+			console.log(nd);
+			lazy.set(my_ind, nd);
+
+			node.ind = nd.ind;
+			node.get_node = nd.get_node;
+			node.get_tag = nd.get_tag;
+			node.set_tag = nd.set_tag;
+			node.set_node = nd.set_node;
+
+			return nd.get_node(i);
+		},
+		get_tag: () => col_guess,
+		set_tag: () => null,
+		set_node: () => null
+	};
+
+	lazy.set(my_ind, node);
+	return node;
+}
+	};
+
+	return obj;
+}
+*/
+
 
 
 
@@ -355,6 +412,8 @@ copy: () => {
 cur: () => path.at(-1)[0],
 set_cur: (val) => path.at(-1)[0] = val,
 cur_ind: () => path.at(-1)[1],
+get_tree: () => qtree,
+get_depth: () => path.length-1,
 desc: (ind) => path.push([obj.cur().get_node(ind), ind]),
 asc: (hint = 0) => {
 	let [n1, ind] = path.pop();
@@ -406,7 +465,6 @@ get_root: () => {
 
 	return path[0][0];
 },
-get_tree: () => qtree
 	}
 
 	return obj;
@@ -418,12 +476,12 @@ let set_path = (path, unit, p, depth) => {
 	path.set_path([0n, 0n], 0n);
 
 	for(let i = 0; i < depth; i++){
-		let quad = [p[0] > orig[0], p[1] < orig[1]];
+		let quad = [p[0] > orig[0], p[1] > orig[1]];
 
 		path.desc(quad[0] + 2*quad[1]);
 
 		unit /= 2;
-		orig = add(smul(unit, [quad[0]-0.5, 0.5-quad[1]]), orig);
+		orig = add(smul(unit, [quad[0]-0.5, quad[1]-0.5]), orig);
 	}
 
 	return path;
