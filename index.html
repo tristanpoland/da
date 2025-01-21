@@ -360,7 +360,14 @@ let loop = (() => {
 			});
 			el.dispatchEvent(event);
 		})
-	)
+	);
+
+	let btn = (name, fn) => all(
+		el("button"),
+		Attr("innerText", name),
+		Event("click", fn)
+	);
+
 
 	document.body = un_cps(Body(
 		Overlap(
@@ -402,7 +409,13 @@ let loop = (() => {
 
 							let el = document.getElementById("main_color");
 							el.value = to_rgb(nd.get_tag());
-						}))
+						})),
+						btn("undo", () => {
+							taskList.add_task("undo", undo);
+						}),
+						btn("redo", () => {
+							taskList.add_task("redo", redo);
+						})
 					)),
 					Style({
 						"background": "white"
@@ -421,7 +434,7 @@ let loop = (() => {
 	mouse_wheel(screen, ([x, y], change) => {
 		let dp = to_cspace([x, y]);
 		let n_zoom = zoom + 0.05*zoom*change;
-		pos = add(smul(zoom/n_zoom, sub(pos, dp)), dp),
+		pos = add(smul(zoom/n_zoom, sub(pos, dp)), dp);
 		zoom = n_zoom;
 
 		taskList.add_task("update_view", update_view);
@@ -429,8 +442,9 @@ let loop = (() => {
 	touch_pinch(screen, (p, change) => {
 		let dp = to_cspace(p);
 		let n_zoom = zoom + 0.05*zoom*change;
-
+		pos = add(smul(zoom/n_zoom, sub(pos, dp)), dp);
 		zoom = n_zoom;
+
 		taskList.add_task("update_view", update_view);
 	});
 
