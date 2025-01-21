@@ -125,7 +125,7 @@ let touch_pinch = (el, cb) => { //TODO figure out how to fix paning while pinchi
 
 		let n_dist = dist(...get_points());
 		
-		let pinch = Math.sign((start - n_dist)/10 | 0); //TODO dynamically find value
+		let pinch = Math.sign((start - n_dist)/7 | 0); //TODO dynamically find value
 
 		if(pinch){
 			cb(get_avg_pos(), Math.sign(pinch | 0))
