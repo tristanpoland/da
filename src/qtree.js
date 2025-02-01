@@ -195,7 +195,7 @@ let set_node = (qtree, node, ind, val) => {
 
 let render_sdf = (qtree, node, depth, sdf, fill) => {
 	let render_ = (node, orig, unit, depth) => {
-		unit = unit/2;
+		unit = unit * 0.5;
 
 		let dist = sdf(orig);
 		let target = 2**0.5 * unit;
@@ -204,10 +204,12 @@ let render_sdf = (qtree, node, depth, sdf, fill) => {
 			return fill;
 
 		if(dist < target){
-			let nodes = Array(4).fill().map((v, i) => node.get_node(i));
+			let hu = unit * 0.5;
 			return qtree.node(
-				...nodes
-					.map((v, i) => render_(v, add(smul(unit, [!!(i & 1) - 0.5, !!(i & 2) - 0.5]), orig), unit, depth-1))
+				render_(node.get_node(0), add([-hu, -hu], orig), unit, depth-1),
+				render_(node.get_node(1), add([hu, -hu], orig), unit, depth-1),
+				render_(node.get_node(2), add([-hu, hu], orig), unit, depth-1),
+				render_(node.get_node(3), add([hu, hu], orig), unit, depth-1)
 			);
 		}
 
@@ -264,6 +266,7 @@ let QtreeMirror = (q1, q2) => {
 	let seen = new Map();
 
 	let obj = {
+get_main: () => q1,
 get_seen: () => seen,
 mirror: (node) => {
 	if(seen.has(node.ind))

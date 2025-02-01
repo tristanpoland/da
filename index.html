@@ -15,7 +15,7 @@
 
 let add = (a, b) => a.map((v, i) => v + b[i]);
 let smul = (a, b) => b.map(v => v * a);
-let sub = (a, b) => add(a, smul(-1, b));
+let sub = (a, b) => a.map((v, i) => v - b[i]);
 let dot = (a, b) => a.map((v, i) => v * b[i]).reduce((a, b) => a + b);
 let length = (a) => dot(a, a)**0.5;
 let norm = (a) => smul(1/length(a), a);
@@ -80,7 +80,7 @@ let pos = [0, 0];
 let zoom = 1;
 let res;
 
-let qtree, path;
+let qtree, stree, path;
 
 
 let brush = SdfBrush();
@@ -102,10 +102,10 @@ let load_state = (state) => {
 	[path, pos, zoom, surface, global_depth] = state;
 	gpu_buf.clear();
 	let gpu_t = LinearQtree(gpu_buf);
-	let stree = QtreeMirror(qtree, gpu_t);
+	stree = QtreeMirror(qtree, gpu_t);
 
-	brush.set_surface(stree, stree.node_at(surface.ind));
-	set_qtree(stree.mirror(surface));
+	brush.set_surface(qtree, qtree.node_at(surface.ind));
+	set_qtree(stree.mirror(stree.node_at(surface.ind)));
 
 	queue = [surface.ind, 0];
 	seen = new Map();
@@ -186,6 +186,7 @@ let redraw = () => {
 		-pos[0], -pos[1], 0, 1
 	]);
 
+	set_qtree(stree.mirror(stree.node_at(brush.get_surface()[1].ind)));
 	rend.set_uniform("unit", "float", unit/zoom);
 	rend.draw();
 };
@@ -193,9 +194,8 @@ let redraw = () => {
 let update_tree = () => {
 	drawing = false;
 
-	let [stree, node] = brush.get_surface();
-	set_qtree(stree.mirror(node));
-
+	let [qt, node] = brush.get_surface();
+	queue.push(node.ind, 0);
 	taskList.add_task("redraw", redraw);
 };
 
@@ -205,8 +205,9 @@ let update_tree = () => {
 
 let update_view = (update = false) => {
 	if(brush.dirty()){
-		let [stree, node] = brush.get_surface();
-		set_tlnode(path, qtree.node_at(node.ind));
+		let [qt, node] = brush.get_surface();
+		set_tlnode(path, node);
+		queue.push(node.ind, 0);
 		brush.clean();
 	}
 
@@ -245,11 +246,11 @@ let update_view = (update = false) => {
 	if(update){
 		gpu_buf.clear();
 		let gpu_t = LinearQtree(gpu_buf);
-		let stree = QtreeMirror(qtree, gpu_t);
-		let node = stree.node_at(get_tlnode(path).ind);
+		stree = QtreeMirror(qtree, gpu_t);
+		let node = get_tlnode(path);
 
-		brush.set_surface(stree, node);
-		set_qtree(stree.mirror(node));
+		set_qtree(stree.mirror(stree.node_at(node.ind)));
+		brush.set_surface(qtree, node);
 
 		queue = [node.ind, 0];
 		seen = new Map();
@@ -291,17 +292,12 @@ let loop = (() => {
 			avg_frame_time = Math.max((9*frame_time + frame_time) / 10, 1); //firefox gets this set to zero somehow...
 		frame_start = start;
 
-
-		let task;
-		while(time() < avg_frame_time * 0.8 && (task = taskList.get_task()))
-			task[1]();
-
 		let max_depth = Math.min(Math.log2(unit) + 2 | 0, 16);
 		//let seen = cursor_path.get_tree().get_seen(); //TODO use mirror's seen?
 		let nodes = [];
 		if(queue.length){
 			while(time() < avg_frame_time * 0.5 && queue.length){
-				let nd = brush.get_tree().node_at(queue.shift());
+				let nd = stree.node_at(queue.shift());
 				let depth = queue.shift();
 
 				if(seen.has(nd.ind) || depth >= max_depth)
@@ -316,6 +312,10 @@ let loop = (() => {
 
 			taskList.add_task("update_tree", update_tree);
 		}
+
+		let task;
+		while(time() < avg_frame_time * 0.8 && (task = taskList.get_task()))
+			task[1]();
 
 		requestAnimationFrame(loop);
 	}
@@ -404,12 +404,13 @@ let loop = (() => {
 						brush_btn("Pixel", PixelBrush),
 						brush_btn("Rel Polyline", () => SdfBrush(true)),
 						brush_btn("Polyline", () => SdfBrush()),
-						brush_btn("EyeDropper", () => EyeDropper(true, (nd) => {
+						brush_btn("EyeDropper", () => EyeDropper((nd) => {
 							let to_rgb = (tag) => "#" + ((tag & 0xffffff) | 0x1000000).toString(16).slice(1).match(/[0-9a-zA-Z]{2}/g).toReversed().join("");
 
 							let el = document.getElementById("main_color");
 							el.value = to_rgb(nd.get_tag());
 						})),
+						brush_btn("fill", BucketFill),
 						btn("undo", () => {
 							taskList.add_task("undo", undo);
 						}),
@@ -538,11 +539,10 @@ let loop = (() => {
 
 	gpu_buf = Uint32Arr(rend.GpuUint8("tex"));
 	let gpu_t = LinearQtree(gpu_buf);
-	let mirror = QtreeMirror(qtree, gpu_t);
-	let node = mirror.node_at(get_tlnode(path).ind);
+	stree = QtreeMirror(qtree, gpu_t);
+	let node = get_tlnode(path);
 
-	brush.set_surface(mirror, node);
-	set_qtree(mirror.mirror(node));
+	brush.set_surface(qtree, node);
 	loop();
 })()
 	</script>

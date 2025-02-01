@@ -160,7 +160,7 @@ update_pos: (p, k) => {
 
 
 
-let EyeDropper = (rel, cb) => {
+let EyeDropper = (cb) => {
 	let c_os = [0, 0];
 	let cursor_path;
 	let brush_depth = 10;
@@ -177,17 +177,71 @@ clean: () => tree_dirty = false,
 set_surface: (qtree, node) => cursor_path = QtreePath(qtree, node),
 set_pos: (p, dep, zm) => {
 	depth = dep;
-	set_path(cursor_path, 1, p, rel ? brush_depth : brush_depth-depth);
+	set_path(cursor_path, 1, p, brush_depth);
 	c_os = [0, 0];
 },
 update_pos: (p, k) => {
-	let os = add(smul(rel ? 2**brush_depth : 2**(brush_depth-depth), k), c_os);
+	let os = add(smul(2**brush_depth, k), c_os);
 	let uos = os.map(v => v | 0);
 
 	cb(cursor_path.cur());
 	cursor_path.add(uos.map(BigInt));
 
 	c_os = sub(os, uos);
+	tree_dirty = true;
+}
+	};
+
+	return obj;
+}
+
+
+let fill = (path, c1, color) => {
+	let stack = [];
+
+	while(path.get_depth() > 0){
+		stack.push(path.cur_ind());
+		path.asc();
+
+		if(path.cur().ind != c1.ind){
+			path.desc(stack.pop());
+			break;
+		}
+	}
+
+	path.set_cur(color);
+
+	let queue = [[0n, 1n, 0n], [1n, 0n, 0n], [-1n, 0n, 0n], [0n, -1n]];
+
+	let pos = [0n, 0n];
+	while(queue.length){
+		let cur = queue.pop();
+
+	}
+}
+
+let BucketFill = () => {
+	let cursor_path;
+	let brush_color;
+	let brush_depth = 10;
+	let tree_dirty = false;
+	let depth;
+
+	let obj = {
+get_tree: () => cursor_path.get_tree(),
+set_color: (col) => brush_color = col,
+set_scale: (val) => brush_depth = val,
+get_surface: () => [cursor_path.get_tree(), cursor_path.get_root()],
+dirty: () => tree_dirty, //TODO find a better way?
+clean: () => tree_dirty = false,
+set_surface: (qtree, node) => cursor_path = QtreePath(qtree, node),
+set_pos: (p, dep, zm) => {
+	depth = dep;
+},
+update_pos: (p, k) => {
+	set_path(cursor_path, 1, p, brush_depth);
+	fill(cursor_path, cursor_path.cur(), cursor_path.get_tree().color(brush_color));
+
 	tree_dirty = true;
 }
 	};
